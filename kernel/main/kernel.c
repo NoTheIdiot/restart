@@ -62,6 +62,7 @@ void init_cpu_gs(uint64_t kernel_stack_top) {
 void windoge(void) {
     clear();
     printf("Welcome to WindogeOS\n");
+    init_serial();
     printf("[\033[96m ... \033[0m] Init GDT and TSS\n");
     init_gdt_tss();
     printf("[\033[92m wow \033[0m] GDT loaded\n");
@@ -88,9 +89,6 @@ void windoge(void) {
     printf("[\033[96m ... \033[0m] Init PCIE...\n");
     init_pcie();
     printf("[\033[92m wow \033[0m] PCIE done\n");
-    printf("[\033[96m ... \033[0m] Init PCIE...\n");
-    init_pcie();
-    printf("[\033[92m wow \033[0m] PCIE done\n");
     printf("[\033[96m ... \033[0m] Init AHCI (and SATA)...\n");
     ata_probe_devices();
     printf("[\033[92m wow \033[0m] AHCI and SATA done\n");
@@ -103,5 +101,7 @@ void windoge(void) {
     printf("[\033[96m ... \033[0m] Mounting ExFAT\n");
     fs_mount();
     printf("[\033[92m wow \033[0m] Mount done\n");
+    printf("\033[96mWindogeOS has booted. \033[0m\n");
+    printf("\033[96mUh, now what?\033[0m");
     halt();
 }

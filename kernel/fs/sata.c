@@ -177,7 +177,7 @@ static int ahci_rw_sector_phys(uint8_t port_num, uint64_t lba, uint16_t count, u
         spin++;
     }
     if (spin == 1000000U) {
-        printf("[AHCI Debug] %s timeout on port %u: drive busy before command issue.\n",
+        sprintf("[AHCI Debug] %s timeout on port %u: drive busy before command issue.\n",
                write ? "write" : "read", port_num);
         return -1;
     }
@@ -191,14 +191,14 @@ static int ahci_rw_sector_phys(uint8_t port_num, uint64_t lba, uint16_t count, u
         }
         if (mmio_read32((uintptr_t)&port->is) & (1U << 30)) {
             mmio_write32((uintptr_t)&port->is, 1U << 30);
-            printf("[AHCI Debug] %s failed on port %u: task file error status (tfes).\n",
+            sprintf("[AHCI Debug] %s failed on port %u: task file error status (tfes).\n",
                    write ? "write" : "read", port_num);
             return -1;
         }
     }
 
     if (timeout == 0) {
-        printf("[AHCI Debug] %s failed on port %u: controller timed out waiting for completion.\n",
+        sprintf("[AHCI Debug] %s failed on port %u: controller timed out waiting for completion.\n",
                write ? "write" : "read", port_num);
         return -1;
     }
@@ -228,13 +228,13 @@ uint64_t ata_drive_sector_count(uint8_t drive) {
 
 int ata_read_sector(uint8_t drive, uint64_t lba, uint8_t *buffer) {
     if (buffer == NULL || !ata_drive_present(drive) || g_dma_bounce_virt == NULL) {
-        printf("[AHCI Debug] Read rejected on drive %u: invalid buffer, uninitialized DMA, or missing drive.\n", drive);
+        sprintf("[AHCI Debug] Read rejected on drive %u: invalid buffer, uninitialized DMA, or missing drive.\n", drive);
         return -1;
     }
     g_current_drive = drive;
 
     if (ahci_rw_sector_phys(drive, lba, 1, 0, g_dma_bounce_phys) != 0) {
-        printf("[AHCI Debug] Read failed on drive %u (LBA %llu): DMA transfer timed out or errored.\n",
+        sprintf("[AHCI Debug] Read failed on drive %u (LBA %llu): DMA transfer timed out or errored.\n",
                drive, (unsigned long long)lba);
         return -1;
     }
@@ -245,7 +245,7 @@ int ata_read_sector(uint8_t drive, uint64_t lba, uint8_t *buffer) {
 
 int ata_write_sector(uint8_t drive, uint64_t lba, const uint8_t *buffer) {
     if (buffer == NULL || !ata_drive_present(drive) || g_dma_bounce_virt == NULL) {
-        printf("[AHCI Debug] Write rejected on drive %u: invalid buffer, uninitialized DMA, or missing drive.\n", drive);
+        sprintf("[AHCI Debug] Write rejected on drive %u: invalid buffer, uninitialized DMA, or missing drive.\n", drive);
         return -1;
     }
     g_current_drive = drive;
@@ -263,24 +263,24 @@ void ata_probe_devices(void) {
     uint8_t bus = 0, slot = 0, func = 0;
     uint64_t bar5_phys = 0;
     if (!pci_find_ahci(&bus, &slot, &func, &bar5_phys) || bar5_phys == 0) {
-        printf("[AHCI Debug] No AHCI controller found.\n");
+        sprintf("[AHCI Debug] No AHCI controller found.\n");
         return;
     }
 
     pci_enable_device(bus, slot, func);
     bar5_phys &= ~0xFULL;
 
-    printf("[AHCI Debug] Found controller at PCI %02x:%02x.%x, BAR5 phys=0x%llx\n",
+    sprintf("[AHCI Debug] Found controller at PCI %02x:%02x.%x, BAR5 phys=0x%llx\n",
            bus, slot, func, (unsigned long long)bar5_phys);
 
     void *hba_mapped = map_kernel_mmio(bar5_phys, PAGE_SIZE * 2);
     if (!hba_mapped) {
-        printf("[AHCI Debug] Failed to map AHCI BAR5 MMIO (phys=0x%llx).\n", (unsigned long long)bar5_phys);
+        sprintf("[AHCI Debug] Failed to map AHCI BAR5 MMIO (phys=0x%llx).\n", (unsigned long long)bar5_phys);
         return;
     }
     g_hba = (ahci_hba_t *)hba_mapped;
 
-    printf("[AHCI Debug] CAP=0x%08x PI=0x%08x VS=0x%08x\n",
+    sprintf("[AHCI Debug] CAP=0x%08x PI=0x%08x VS=0x%08x\n",
            mmio_read32((uintptr_t)&g_hba->cap),
            mmio_read32((uintptr_t)&g_hba->pi),
            mmio_read32((uintptr_t)&g_hba->vs));
@@ -292,7 +292,7 @@ void ata_probe_devices(void) {
     g_dma_bounce_phys = alloc_page();
     g_dma_bounce_virt = (uint8_t *)map_kernel_mmio(g_dma_bounce_phys, PAGE_SIZE);
     if (!g_dma_bounce_virt) {
-        printf("[AHCI Debug] Failed to map DMA bounce buffer (phys=0x%llx).\n", (unsigned long long)g_dma_bounce_phys);
+        sprintf("[AHCI Debug] Failed to map DMA bounce buffer (phys=0x%llx).\n", (unsigned long long)g_dma_bounce_phys);
         return;
     }
 
@@ -334,7 +334,7 @@ void ata_probe_devices(void) {
         }
 
         if ((ssts & 0x0F) != 3) {
-            printf("[AHCI Debug] Port %u link not active (SSTS=0x%08x).\n", i, ssts);
+            sprintf("[AHCI Debug] Port %u link not active (SSTS=0x%08x).\n", i, ssts);
             continue;
         }
 
@@ -348,7 +348,7 @@ void ata_probe_devices(void) {
         void *tables_1_virt = map_kernel_mmio(page_tables_1, PAGE_SIZE);
         void *tables_2_virt = map_kernel_mmio(page_tables_2, PAGE_SIZE);
         if (!cl_fis_virt || !tables_1_virt || !tables_2_virt) {
-            printf("[AHCI Debug] Port %u failed to map command/FIS pages.\n", i);
+            sprintf("[AHCI Debug] Port %u failed to map command/FIS pages.\n", i);
             continue;
         }
 
@@ -393,7 +393,7 @@ void ata_probe_devices(void) {
 
         g_drive_present[i] = 1;
         g_drive_sector_counts[i] = 20971520ULL;
-        printf("[AHCI Debug] Port %u ready (sectors=%llu).\n",
+        sprintf("[AHCI Debug] Port %u ready (sectors=%llu).\n",
                i, (unsigned long long)g_drive_sector_counts[i]);
         if (first_drive == -1) {
             first_drive = i;

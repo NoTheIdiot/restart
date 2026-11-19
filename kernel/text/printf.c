@@ -1,8 +1,10 @@
 #include <dogeio.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 #include <fonts.h>
 #include <limine.h>
+#include <io.h>
 
 extern volatile struct limine_framebuffer_request framebuffer_request;
 
@@ -31,6 +33,34 @@ static int      ansi_param_count = 0;
 static uint32_t ansi_cur_val = 0;
 static int      ansi_has_val = 0;
 
+static inline uint32_t read_u32_unaligned(const uint8_t *p) {
+    uint32_t v = 0;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+#if defined(__x86_64__) || defined(__i386__)
+static inline void io_outb(uint16_t port, uint8_t val) {
+    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+static inline uint8_t io_inb(uint16_t port) {
+    uint8_t ret;
+    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+#else
+static inline void io_outb(uint16_t port, uint8_t val) {
+    (void)port;
+    (void)val;
+}
+
+static inline uint8_t io_inb(uint16_t port) {
+    (void)port;
+    return 0;
+}
+#endif
+
 static inline struct limine_framebuffer *get_fb(void) {
     if (framebuffer_request.response == NULL ||
         framebuffer_request.response->framebuffer_count < 1) {
@@ -44,14 +74,14 @@ static const uint8_t *get_glyph_pointer(char c) {
         c = ' ';
     }
 
-    uint32_t magic = *(const uint32_t *)current_font;
+    uint32_t magic = read_u32_unaligned(current_font);
 
-    if ((magic & 0xFFFF) == 0x0436) {
+    if ((magic & 0xFFFFU) == 0x0436U) {
         uint8_t bytes_per_glyph = current_font[3];
         return &current_font[4 + ((uint8_t)c * bytes_per_glyph)];
-    } else if (magic == 0x864ab572) {
-        uint32_t header_size = *(const uint32_t *)&current_font[8];
-        uint32_t bytes_per_glyph = *(const uint32_t *)&current_font[20];
+    } else if (magic == 0x864ab572U) {
+        uint32_t header_size = read_u32_unaligned(&current_font[8]);
+        uint32_t bytes_per_glyph = read_u32_unaligned(&current_font[20]);
         return &current_font[header_size + ((uint8_t)c * bytes_per_glyph)];
     }
 
@@ -60,39 +90,39 @@ static const uint8_t *get_glyph_pointer(char c) {
 
 static void render_glyph(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg) {
     struct limine_framebuffer *fb = get_fb();
-    if (!fb || !current_font) return;
+    if (!fb || !fb->address || !current_font) return;
 
-    uint32_t *fb_ptr = (uint32_t *)fb->address;
     uint32_t pixel_x = x * 8;
     uint32_t pixel_y = y * 16;
-    uint64_t pitch32 = fb->pitch / 4;
+    uint64_t pitch32 = fb->pitch / sizeof(uint32_t);
 
     if (pixel_x + 8 > fb->width || pixel_y + 16 > fb->height) {
         return;
     }
 
+    uint32_t *fb_ptr = (uint32_t *)fb->address;
     const uint8_t *glyph = get_glyph_pointer(c);
 
     for (uint32_t g_row = 0; g_row < 16; g_row++) {
         uint8_t bits = glyph[g_row];
-        size_t row_offset = (pixel_y + g_row) * pitch32 + pixel_x;
+        size_t row_offset = (size_t)(pixel_y + g_row) * pitch32 + pixel_x;
 
         for (int bit = 0; bit < 8; bit++) {
-            fb_ptr[row_offset + (size_t)bit] = ((bits >> (7 - bit)) & 1) ? fg : bg;
+            fb_ptr[row_offset + (size_t)bit] = ((bits >> (7 - bit)) & 1U) ? fg : bg;
         }
     }
 }
 
 void clear(void) {
     struct limine_framebuffer *fb = get_fb();
-    if (fb) {
+    if (fb && fb->address) {
         term_cols = (uint32_t)(fb->width / 8);
         term_rows = (uint32_t)(fb->height / 16);
         if (term_cols > TERMINAL_COLS) term_cols = TERMINAL_COLS;
         if (term_rows > TERMINAL_ROWS) term_rows = TERMINAL_ROWS;
 
         uint32_t *fb_ptr = (uint32_t *)fb->address;
-        uint64_t pitch32 = fb->pitch / 4;
+        uint64_t pitch32 = fb->pitch / sizeof(uint32_t);
         for (uint64_t y = 0; y < fb->height; y++) {
             for (uint64_t x = 0; x < fb->width; x++) {
                 fb_ptr[y * pitch32 + x] = background_color;
@@ -283,19 +313,22 @@ static void print_str(const char *s) {
     }
 }
 
-static void print_uint(uint64_t val, int base, int upper) {
+static void print_uint_padded(uint64_t val, int base, int upper, int width, char pad_char) {
     const char *digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
     char buf[65];
     int i = 0;
 
     if (val == 0) {
-        putchar('0');
-        return;
+        buf[i++] = '0';
+    } else {
+        while (val > 0) {
+            buf[i++] = digits[val % (uint64_t)base];
+            val /= (uint64_t)base;
+        }
     }
 
-    while (val > 0) {
-        buf[i++] = digits[val % (uint64_t)base];
-        val /= (uint64_t)base;
+    while (i < width && i < 64) {
+        buf[i++] = pad_char;
     }
 
     while (i > 0) {
@@ -303,12 +336,13 @@ static void print_uint(uint64_t val, int base, int upper) {
     }
 }
 
-static void print_int(int64_t val) {
+static void print_int_padded(int64_t val, int width, char pad_char) {
     if (val < 0) {
         putchar('-');
-        print_uint((uint64_t)(-(val + 1)) + 1, 10, 0);
+        if (width > 0) width--;
+        print_uint_padded((uint64_t)(-(val + 1)) + 1, 10, 0, width, pad_char);
     } else {
-        print_uint((uint64_t)val, 10, 0);
+        print_uint_padded((uint64_t)val, 10, 0, width, pad_char);
     }
 }
 
@@ -321,6 +355,18 @@ void vprintf(const char *fmt, va_list ap) {
 
         fmt++;
         if (!*fmt) break;
+
+        char pad_char = ' ';
+        if (*fmt == '0') {
+            pad_char = '0';
+            fmt++;
+        }
+
+        int width = 0;
+        while (*fmt >= '0' && *fmt <= '9') {
+            width = width * 10 + (*fmt - '0');
+            fmt++;
+        }
 
         int is_long = 0;
         if (*fmt == 'l') {
@@ -338,20 +384,24 @@ void vprintf(const char *fmt, va_list ap) {
                 break;
             case 'd':
             case 'i':
-                print_int(is_long ? va_arg(ap, int64_t) : (int64_t)va_arg(ap, int));
+                print_int_padded(is_long ? va_arg(ap, int64_t) : (int64_t)va_arg(ap, int),
+                                 width, pad_char);
                 break;
             case 'u':
-                print_uint(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int), 10, 0);
+                print_uint_padded(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
+                                  10, 0, width, pad_char);
                 break;
             case 'x':
-                print_uint(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int), 16, 0);
+                print_uint_padded(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
+                                  16, 0, width, pad_char);
                 break;
             case 'X':
-                print_uint(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int), 16, 1);
+                print_uint_padded(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
+                                  16, 1, width, pad_char);
                 break;
             case 'p':
                 print_str("0x");
-                print_uint((uintptr_t)va_arg(ap, void *), 16, 0);
+                print_uint_padded((uintptr_t)va_arg(ap, void *), 16, 0, width, pad_char);
                 break;
             case '%':
                 putchar('%');
@@ -368,5 +418,63 @@ void printf(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     vprintf(fmt, ap);
+    va_end(ap);
+}
+
+#define COM1_PORT 0x3F8
+
+void init_serial(void) {
+    io_outb(COM1_PORT + 1, 0x00);
+    io_outb(COM1_PORT + 3, 0x80);
+    io_outb(COM1_PORT + 0, 0x03);
+    io_outb(COM1_PORT + 1, 0x00);
+    io_outb(COM1_PORT + 3, 0x03);
+    io_outb(COM1_PORT + 2, 0xC7);
+    io_outb(COM1_PORT + 4, 0x0B);
+}
+
+int sis_transmit_empty(void) {
+    return io_inb(COM1_PORT + 5) & 0x20;
+}
+
+static void serial_putc(char c) {
+    while (!sis_transmit_empty()) {}
+    io_outb(COM1_PORT, (uint8_t)c);
+}
+
+static void serial_out(char c) {
+    if (c == '\n') serial_putc('\r');
+    serial_putc(c);
+}
+
+void sprintf(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    for (; *fmt; fmt++) {
+        if (*fmt != '%') {
+            serial_out(*fmt);
+            continue;
+        }
+        fmt++;
+        if (!*fmt) break;
+        switch (*fmt) {
+            case 'c':
+                serial_out((char)va_arg(ap, int));
+                break;
+            case 's': {
+                const char *s = va_arg(ap, const char *);
+                if (!s) s = "(null)";
+                while (*s) serial_out(*s++);
+                break;
+            }
+            case '%':
+                serial_out('%');
+                break;
+            default:
+                serial_out('%');
+                serial_out(*fmt);
+                break;
+        }
+    }
     va_end(ap);
 }

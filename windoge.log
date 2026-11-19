@@ -1,0 +1,8 @@
+[AHCI Debug] Found controller at PCI %02x:%02x.%x, BAR5 phys=0x%llx
+[AHCI Debug] CAP=0x%08x PI=0x%08x VS=0x%08x
+[AHCI Debug] Port %u ready (sectors=%llu).
+[xHCI] Keyboard active on port %u (slot %u).
+[HDD] verifying boot magic and exfat magic
+[HDD] VBR valid
+[HDD] checking exFAT magic
+[HDD] exFAT mounted

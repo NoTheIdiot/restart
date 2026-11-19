@@ -409,22 +409,22 @@ int mount(mount_t *vol, uint8_t *cluster_buf) {
     vol->poffset_bytes = 0;
 
     if (read_offset(vol, 0, &boot, 1) != 0) {
-        printf("[BAD] disk read failure, SATA driver bad.\n");
+        sprintf("[BAD] disk read failure, SATA driver bad.\n");
         return -256;
     }
 
-    printf("[HDD] verifying boot magic and exfat magic\n");
+    sprintf("[HDD] verifying boot magic and exfat magic\n");
     if (boot.sig != 0xAA55) {
-        printf("[HDD] uh, invalid VBR. (0xAA55)\n");
+        sprintf("[HDD] uh, invalid VBR. (0xAA55)\n");
         return -128;
     }
 
-    printf("[HDD] VBR valid\n");
-    printf("[HDD] checking exFAT magic\n");
+    sprintf("[HDD] VBR valid\n");
+    sprintf("[HDD] checking exFAT magic\n");
     const char* magic = "EXFAT   ";
     for (int i = 0; i < 8; i++) {
         if (boot.fs_name[i] != magic[i]) {
-            printf("[HDD] uh sir, this is not exFAT\n");
+            sprintf("[HDD] uh sir, this is not exFAT\n");
             return -128;
         }
     }
@@ -446,7 +446,7 @@ int mount(mount_t *vol, uint8_t *cluster_buf) {
     while (curr >= 2 && curr < 0xFFFFFFF8) {
         uint64_t dir_sector = cluster_to_sectors(vol, curr);
         if (read_offset(vol, dir_sector, cluster_buf, vol->sectors_per_cluster) != 0) {
-            printf("[BAD] disk read failure, SATA driver bad.\n");
+            sprintf("[BAD] disk read failure, SATA driver bad.\n");
             return -256;
         }
 
@@ -475,11 +475,11 @@ int mount(mount_t *vol, uint8_t *cluster_buf) {
 
 done:
     if (vol->bitmap_cluster < 2 || vol->upcase_cluster < 2) {
-        printf("[HDD] missing bitmap or upcase table\n");
+        sprintf("[HDD] missing bitmap or upcase table\n");
         return -128;
     }
 
-    printf("[HDD] exFAT mounted\n");
+    sprintf("[HDD] exFAT mounted\n");
     return 0;
 }
 

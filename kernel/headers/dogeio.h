@@ -307,4 +307,8 @@ uint64_t get_epoch_seconds(void);
 char* get_time(void);
 char* get_date(void);
 
+// serial
+void init_serial(void);
+void sprintf(const char *fmt, ...);
+
 #endif

@@ -282,7 +282,7 @@ static int setup_usb_keyboard(uint8_t port_idx) {
     uint8_t slot_id = 0, cc = 0;
     ring_cmd(0, 0, TRB_TYPE_ENABLE_SLOT, 0);
     if (wait_cmd_completion(&slot_id, &cc) != 0 || slot_id == 0) {
-        printf("[xHCI] Enable Slot failed (cc=%u)\n", cc);
+        sprintf("[xHCI] Enable Slot failed (cc=%u)\n", cc);
         return -1;
     }
 
@@ -308,7 +308,7 @@ static int setup_usb_keyboard(uint8_t port_idx) {
 
     ring_cmd(in_ctx_phys, 0, TRB_TYPE_ADDRESS_DEVICE, (uint32_t)slot_id << 24);
     if (wait_cmd_completion(NULL, &cc) != 0) {
-        printf("[xHCI] Address Device failed on slot %u (cc=%u)\n", slot_id, cc);
+        sprintf("[xHCI] Address Device failed on slot %u (cc=%u)\n", slot_id, cc);
         return -1;
     }
 
@@ -326,7 +326,7 @@ static int setup_usb_keyboard(uint8_t port_idx) {
 
     ring_cmd(in_ctx_phys, 0, TRB_TYPE_CONFIGURE_EP, (uint32_t)slot_id << 24);
     if (wait_cmd_completion(NULL, &cc) != 0) {
-        printf("[xHCI] Configure EP1 IN failed on slot %u (cc=%u)\n", slot_id, cc);
+        sprintf("[xHCI] Configure EP1 IN failed on slot %u (cc=%u)\n", slot_id, cc);
         return -1;
     }
 
@@ -460,7 +460,7 @@ int init_keyboard(void) {
     uint8_t bus = 0, slot = 0, func = 0;
     uint64_t bar0_phys = 0;
     if (!find_xhci_pci(&bus, &slot, &func, &bar0_phys)) {
-        printf("[xHCI] Controller not found.\n");
+        sprintf("[xHCI] Controller not found.\n");
         return -1;
     }
 
@@ -468,7 +468,7 @@ int init_keyboard(void) {
 
     void *mmio_base = map_kernel_mmio(bar0_phys, PAGE_SIZE * 4);
     if (!mmio_base) {
-        printf("[xHCI] Failed to map BAR0 MMIO.\n");
+        sprintf("[xHCI] Failed to map BAR0 MMIO.\n");
         return -1;
     }
 
@@ -546,12 +546,12 @@ int init_keyboard(void) {
                 if (xhci_r32(portsc_addr) & XHCI_PORTSC_PED) break;
             }
             if ((xhci_r32(portsc_addr) & XHCI_PORTSC_PED) && setup_usb_keyboard(p) == 0) {
-                printf("[xHCI] Keyboard active on port %u (slot %u).\n", p + 1, g_kbd_slot);
+                sprintf("[xHCI] Keyboard active on port %u (slot %u).\n", p + 1, g_kbd_slot);
                 return 0;
             }
         }
     }
 
-    printf("[xHCI] Controller enabled, no keyboard attached.\n");
+    sprintf("[xHCI] Controller enabled, no keyboard attached.\n");
     return 0;
 }
