@@ -97,6 +97,9 @@ void windoge(void) {
     printf("[\033[96m ... \033[0m] Init USB\n");
     init_keyboard();
     printf("[\033[92m wow \033[0m] USB done\n");
+    printf("[\033[96m ... \033[0m] Init RTC (time)\n");
+    init_rtc_time();
+    printf("[\033[92m wow \033[0m] RTC done\n");
     printf("[\033[96m ... \033[0m] Mounting ExFAT\n");
     fs_mount();
     printf("[\033[92m wow \033[0m] Mount done\n");
