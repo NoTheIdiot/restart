@@ -236,7 +236,7 @@ typedef struct {
 void *map_kernel_mmio(uint64_t phys_addr, size_t size);
 uint64_t alloc_page(void);
 
-// pcie
+// pcie, sata, usb or some io shit
 void pcie_init_system(uint64_t v_addr, uint8_t start_bus, uint8_t end_bus);
 void init_pcie(void);
 uint32_t pcie_read32(uint8_t bus, uint8_t device, uint8_t function, uint16_t reg_offset);
@@ -267,5 +267,9 @@ int ata_select_drive(uint8_t drive);
 int ata_read_sector(uint8_t drive, uint64_t lba, uint8_t *buffer);
 int ata_write_sector(uint8_t drive, uint64_t lba, const uint8_t *buffer);
 void ata_probe_devices(void);
+
+// usb (just xhci, wait usb 4 exists?)
+int init_keyboard(void);
+char get_key(void);
 
 #endif

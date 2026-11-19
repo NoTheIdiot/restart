@@ -24,9 +24,8 @@ qemu_config = {
     "machine": [],
     "cpu": [],
     "devices": [
-        "-device", "ich9-usb-uhci1",
-        "-device", "usb-kbd",
-        "-device", "usb-mouse"
+        "-device", "qemu-xhci,id=xhci",
+        "-device", "usb-kbd,bus=xhci.0"
     ],
     "firmware": []
 }
@@ -71,7 +70,7 @@ if architecture == "x86_64":
     else:
         qemu_config["machine"] = ["-M", "pc"] 
         
-    qemu_config["devices"] = ["-device", "qemu-xhci", "-device", "usb-kbd", "-device", "usb-mouse"]
+    qemu_config["devices"] = ["-device", "qemu-xhci,id=xhci", "-device", "usb-kbd,bus=xhci.0"]
     
     if firmware_mode == "UEFI":
         qemu_config["firmware"] = [
@@ -89,7 +88,7 @@ else:
         sys.exit(f"Error: BIOS boot is not supported on target architecture {architecture}.")
         
     qemu_config["machine"] = ["-M", "virt"]
-    qemu_config["devices"] = ["-device", "ramfb", "-device", "qemu-xhci", "-device", "usb-kbd", "-device", "usb-mouse"]
+    qemu_config["devices"] = ["-device", "ramfb", "-device", "qemu-xhci,id=xhci", "-device", "usb-kbd,bus=xhci.0"]
     qemu_config["firmware"] = ["-drive", f"if=pflash,unit=0,format=raw,file=binaries/ovmf-code-{architecture}.fd,readonly=on"]
     
     if architecture == "aarch64":
@@ -584,8 +583,8 @@ def execute_qemu_hdd():
         "-serial", "stdio",
         "-d", "int,cpu_reset,mmu",
         "-D", "qemu.log",
-        "-device", "piix3-usb-uhci,id=uhci",
-        "-device", "usb-kbd,bus=uhci.0"
+        "-device", "qemu-xhci,id=xhci",
+        "-device", "usb-kbd,bus=xhci.0"
     ]
 
     if qemu_config.get("cpu"):
