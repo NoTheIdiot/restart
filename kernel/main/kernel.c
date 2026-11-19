@@ -38,6 +38,27 @@ volatile struct limine_memmap_request memmap_request = {
 __attribute__((used, section(".limine_requests_end")))
 volatile uint64_t limine_request_end_marker[] = LIMINE_REQUESTS_END_MARKER;
 
+typedef struct __attribute__((packed)) {
+    uint64_t kernel_stack;
+    uint64_t user_stack_scratch;
+} cpu_gs_t;
+
+static cpu_gs_t bootstrap_cpu_gs;
+
+void init_cpu_gs(uint64_t kernel_stack_top) {
+    bootstrap_cpu_gs.kernel_stack = kernel_stack_top;
+    bootstrap_cpu_gs.user_stack_scratch = 0;
+
+    uint64_t gs_base = (uint64_t)&bootstrap_cpu_gs;
+    __asm__ volatile (
+        "wrmsr"
+        :
+        : "c" (0xC0000102),
+          "a" ((uint32_t)(gs_base & 0xFFFFFFFF)),
+          "d" ((uint32_t)(gs_base >> 32))
+    );
+}
+
 void windoge(void) {
     clear();
     printf("Welcome to WindogeOS\n");
@@ -53,5 +74,19 @@ void windoge(void) {
     printf("[\033[96m ... \033[0m] Init APIC\n");
     init_apic();
     printf("[\033[92m wow \033[0m] APIC done\n");
+    printf("[\033[96m ... \033[0m] Init PCI\n");
+    init_apic();
+    printf("[\033[92m wow \033[0m] PCI done\n");
+    printf("[\033[96m ... \033[0m] Init CPU GS\n");
+    
+    uint64_t current_rsp;
+    __asm__ volatile ("movq %%rsp, %0" : "=r"(current_rsp));
+    init_cpu_gs(current_rsp);
+    
+    printf("[\033[92m wow \033[0m] Init CPU GS sucessful\n");
+
+    printf("[\033[96m ... \033[0m] Init PCIE...\n");
+    init_pcie();
+    printf("[\033[92m wow \033[0m] PCIE done\n");
     halt();
 }
