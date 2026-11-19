@@ -368,7 +368,7 @@ static char hid_usage_to_ascii(uint8_t usage, uint8_t shift) {
     return shift ? upper[usage] : lower[usage];
 }
 
-char xhci_poll_keyboard(void) {
+char get_key(void) {
     if (!g_op || !g_ev_ring || g_kbd_slot == 0) {
         return 0;
     }
