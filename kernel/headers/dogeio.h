@@ -2,6 +2,7 @@
 #define DOGEIO_H
 
 #include <stdint.h>
+#include <bool.h>
 #include <stddef.h>
 
 #define TERMINAL_COLS 160
@@ -61,5 +62,7 @@ void printf(const char *fmt, ...);
 // gdt stuff, or whatever. I do not want the 50 different header mess again
 // or some garbage like that.
 void init_gdt_tss(void);
+void init_idt(void);
+void init_fpu(void);
 
 #endif

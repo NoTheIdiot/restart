@@ -44,5 +44,11 @@ void windoge(void) {
     printf("[\033[96m ... \033[0m] Init GDT and TSS\n");
     init_gdt_tss();
     printf("[\033[92m wow \033[0m] GDT loaded\n");
+    printf("[\033[96m ... \033[0m] Init IDT\n");
+    init_idt();
+    printf("[\033[92m wow \033[0m] IDT loaded\n");
+    printf("[\033[96m ... \033[0m] Init FPU\n");
+    init_fpu();
+    printf("[\033[92m wow \033[0m] FPU done\n");
     halt();
 }
