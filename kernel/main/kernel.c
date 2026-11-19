@@ -50,5 +50,8 @@ void windoge(void) {
     printf("[\033[96m ... \033[0m] Init FPU\n");
     init_fpu();
     printf("[\033[92m wow \033[0m] FPU done\n");
+    printf("[\033[96m ... \033[0m] Init APIC\n");
+    init_apic();
+    printf("[\033[92m wow \033[0m] APIC done\n");
     halt();
 }

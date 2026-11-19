@@ -64,5 +64,6 @@ void printf(const char *fmt, ...);
 void init_gdt_tss(void);
 void init_idt(void);
 void init_fpu(void);
+void init_apic(void);
 
 #endif
