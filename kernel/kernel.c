@@ -41,5 +41,8 @@ volatile uint64_t limine_request_end_marker[] = LIMINE_REQUESTS_END_MARKER;
 void windoge(void) {
     clear();
     printf("Welcome to WindogeOS\n");
+    printf("[\033[96m ... \033[0m] Init GDT and TSS\n");
+    init_gdt_tss();
+    printf("[\033[92m wow \033[0m] GDT loaded\n");
     halt();
 }

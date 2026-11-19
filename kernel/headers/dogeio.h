@@ -58,4 +58,8 @@ void putchar(char c);
 void vprintf(const char *fmt, va_list ap);
 void printf(const char *fmt, ...);
 
+// gdt stuff, or whatever. I do not want the 50 different header mess again
+// or some garbage like that.
+void init_gdt_tss(void);
+
 #endif

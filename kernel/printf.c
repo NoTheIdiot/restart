@@ -18,6 +18,19 @@ static uint32_t background_color = COLOR_BLACK;
 static uint32_t text_color       = COLOR_GRAY;
 static const uint8_t *current_font = vga_text;
 
+static const uint32_t ansi_colors[16] = {
+    0x00000000, 0x00AA0000, 0x0000AA00, 0x00AA5500, // 0..3: Black, Red, Green, Yellow/Brown
+    0x000000AA, 0x00AA00AA, 0x0000AAAA, 0x00AAAAAA, // 4..7: Blue, Magenta, Cyan, Light Gray
+    0x00555555, 0x00FF5555, 0x0055FF55, 0x00FFFF55, // 8..11: Dark Gray, Bright Red/Green/Yellow
+    0x005555FF, 0x00FF55FF, 0x0055FFFF, 0x00FFFFFF  // 12..15: Bright Blue/Magenta/Cyan/White
+};
+
+static int      ansi_state = 0;
+static uint32_t ansi_params[8];
+static int      ansi_param_count = 0;
+static uint32_t ansi_cur_val = 0;
+static int      ansi_has_val = 0;
+
 static inline struct limine_framebuffer *get_fb(void) {
     if (framebuffer_request.response == NULL ||
         framebuffer_request.response->framebuffer_count < 1) {
@@ -155,7 +168,81 @@ static void newline(void) {
     }
 }
 
+static void apply_ansi_sgr(void) {
+    if (ansi_param_count == 0) {
+        text_color = COLOR_GRAY;
+        background_color = COLOR_BLACK;
+        return;
+    }
+    for (int i = 0; i < ansi_param_count; i++) {
+        uint32_t code = ansi_params[i];
+        if (code == 0) {
+            text_color = COLOR_GRAY;
+            background_color = COLOR_BLACK;
+        } else if (code >= 30 && code <= 37) {
+            text_color = ansi_colors[code - 30];
+        } else if (code == 39) {
+            text_color = COLOR_GRAY;
+        } else if (code >= 40 && code <= 47) {
+            background_color = ansi_colors[code - 40];
+        } else if (code == 49) {
+            background_color = COLOR_BLACK;
+        } else if (code >= 90 && code <= 97) {
+            text_color = ansi_colors[8 + (code - 90)];
+        } else if (code >= 100 && code <= 107) {
+            background_color = ansi_colors[8 + (code - 100)];
+        }
+    }
+}
+
 void putchar(char c) {
+    if (ansi_state == 1) {
+        if (c == '[') {
+            ansi_state = 2;
+            ansi_param_count = 0;
+            ansi_cur_val = 0;
+            ansi_has_val = 0;
+        } else {
+            ansi_state = 0;
+        }
+        return;
+    }
+
+    if (ansi_state == 2) {
+        if (c >= '0' && c <= '9') {
+            ansi_cur_val = ansi_cur_val * 10 + (uint32_t)(c - '0');
+            ansi_has_val = 1;
+            return;
+        }
+        if (c == ';') {
+            if (ansi_param_count < 8) {
+                ansi_params[ansi_param_count++] = ansi_has_val ? ansi_cur_val : 0;
+            }
+            ansi_cur_val = 0;
+            ansi_has_val = 0;
+            return;
+        }
+        if (c >= 0x40 && c <= 0x7E) {
+            if (ansi_has_val && ansi_param_count < 8) {
+                ansi_params[ansi_param_count++] = ansi_cur_val;
+            }
+            if (c == 'm') {
+                apply_ansi_sgr();
+            } else if (c == 'J' && ansi_param_count > 0 && ansi_params[0] == 2) {
+                clear();
+            }
+            ansi_state = 0;
+            return;
+        }
+        ansi_state = 0;
+        return;
+    }
+
+    if (c == '\033') {
+        ansi_state = 1;
+        return;
+    }
+
     if (c == '\r') {
         cursor_x = 0;
         return;
