@@ -234,6 +234,7 @@ typedef struct {
 #define PAGE_USER_FLAGS (PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER)
 
 void *map_kernel_mmio(uint64_t phys_addr, size_t size);
+uint64_t alloc_page(void);
 
 // pcie
 void pcie_init_system(uint64_t v_addr, uint8_t start_bus, uint8_t end_bus);
@@ -257,5 +258,14 @@ uint8_t  pci_read_8(uint8_t bus, uint8_t slot, uint8_t func, uint16_t offset);
 void      pci_enable_device(uint8_t bus, uint8_t slot, uint8_t func);
 pci_bar_t pci_get_bar(uint8_t bus, uint8_t slot, uint8_t func, uint8_t bar_index);
 bool      pci_find_ahci(uint8_t *out_bus, uint8_t *out_slot, uint8_t *out_func, uint64_t *out_bar5_phys);
+
+// sata and ahci
+void ahci_sata_init(uintptr_t ecam_base_addr);
+int ahci_exec_cmd(uint32_t port_num, uint64_t lba, uint32_t count, uint8_t write, uintptr_t buf_phys);
+
+int ata_select_drive(uint8_t drive);
+int ata_read_sector(uint8_t drive, uint64_t lba, uint8_t *buffer);
+int ata_write_sector(uint8_t drive, uint64_t lba, const uint8_t *buffer);
+void ata_probe_devices(void);
 
 #endif

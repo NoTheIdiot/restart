@@ -88,5 +88,11 @@ void windoge(void) {
     printf("[\033[96m ... \033[0m] Init PCIE...\n");
     init_pcie();
     printf("[\033[92m wow \033[0m] PCIE done\n");
+    printf("[\033[96m ... \033[0m] Init PCIE...\n");
+    init_pcie();
+    printf("[\033[92m wow \033[0m] PCIE done\n");
+    printf("[\033[96m ... \033[0m] Init AHCI (and SATA)...\n");
+    ata_probe_devices();
+    printf("[\033[92m wow \033[0m] AHCI and SATA done\n");
     halt();
 }

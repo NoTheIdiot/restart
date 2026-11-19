@@ -14,7 +14,7 @@ extern volatile struct limine_memmap_request memmap_request;
 #define PTE_HUGE     (1ULL << 7)
 #define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
 
-static uint64_t alloc_page_early(void) {
+uint64_t alloc_page(void) {
     static size_t entry_idx = 0;
     static uint64_t offset = 0;
 
@@ -39,7 +39,7 @@ static uint64_t alloc_page_early(void) {
 static uint64_t *get_or_alloc_table(uint64_t *table, size_t idx) {
     uint64_t hhdm = hhdm_request.response->offset;
     if (!(table[idx] & PTE_PRESENT)) {
-        uint64_t new_phys = alloc_page_early();
+        uint64_t new_phys = alloc_page();
         if (!new_phys) return NULL;
         table[idx] = new_phys | PTE_PRESENT | PTE_WRITABLE;
     }
