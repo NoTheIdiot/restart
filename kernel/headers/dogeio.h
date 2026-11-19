@@ -267,6 +267,34 @@ int ata_select_drive(uint8_t drive);
 int ata_read_sector(uint8_t drive, uint64_t lba, uint8_t *buffer);
 int ata_write_sector(uint8_t drive, uint64_t lba, const uint8_t *buffer);
 void ata_probe_devices(void);
+uint8_t ata_current_drive(void);
+
+// exfat
+int mount(mount_t *vol, uint8_t *cluster_buf);
+int create_file(mount_t *vol, const char *name);
+int write_file(mount_t *vol, const char *name, const uint8_t* data, uint64_t size);
+int read_file(mount_t *vol, const char *name, uint8_t* out_buf, uint64_t max_size, uint64_t *bytes_read_out);
+int append_file(mount_t *vol, const char *name, const uint8_t* data, uint64_t size);
+int create_dir(mount_t *vol, const char *path);
+int delete_file(mount_t *vol, const char *name);
+int change_dir(mount_t *vol, const char *path);
+void get_cwd(char* buffer, int size);
+
+// vfs
+int fs_mount(void);
+int fs_create(char* filename);
+int fs_read(char* filename, char* data, uint64_t size);
+int fs_write(char* filename, char* data, uint64_t size);
+bool fs_exists(char *filename);
+int fs_write_force(char* filename, char* data, uint64_t size);
+int fs_list(char* path, fs_t* out, int max_entries);
+int fs_mkdir(char* path);
+int fs_chdir(char* path);
+void fs_get_dir(char* buffer, int size);
+int fs_delete(char* filename);
+int fs_read_raw(char *filename, uint8_t *buffer, uint64_t size);
+int fs_write_raw(char* filename, uint8_t* buffer, uint64_t size);
+int fs_read_raw_at(char *filename, uint8_t *buffer, uint64_t offset, uint64_t size);
 
 // usb (just xhci, wait usb 4 exists?)
 int init_keyboard(void);
