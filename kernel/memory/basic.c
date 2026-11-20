@@ -1,77 +1,238 @@
 #include <stdint.h>
 #include <stddef.h>
-#include <stdbool.h>
+#include <dogeio.h>
 #include <limine.h>
 #include <io.h>
+#include <bool.h>
 
-extern volatile struct limine_hhdm_request hhdm_request;
 extern volatile struct limine_memmap_request memmap_request;
+extern volatile struct limine_hhdm_request hhdm_request;
 
-#define PTE_PRESENT  (1ULL << 0)
-#define PTE_WRITABLE (1ULL << 1)
-#define PTE_PWT      (1ULL << 3)
-#define PTE_PCD      (1ULL << 4)
-#define PTE_HUGE     (1ULL << 7)
-#define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
+typedef struct free {
+    struct free *next;
+} free;
 
-uint64_t alloc_page(void) {
-    static size_t entry_idx = 0;
-    static uint64_t offset = 0;
+free *free_head = NULL;
+uintptr_t hhdm_offset = 0;
+uintptr_t kernel_pml4_phys = 0;
 
-    struct limine_memmap_response *mmap = memmap_request.response;
-    if (!mmap) return 0;
+static inline uintptr_t get_cr3(void) {
+    uintptr_t cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    return cr3 & PAGE_ADDRESS_MASK;
+}
 
-    while (entry_idx < mmap->entry_count) {
-        struct limine_memmap_entry *e = mmap->entries[entry_idx];
-        if (e->type == LIMINE_MEMMAP_USABLE && offset + 4096 <= e->length) {
-            uint64_t phys = e->base + offset;
-            offset += 4096;
-            uint8_t *virt = (uint8_t *)(phys + hhdm_request.response->offset);
-            for (size_t i = 0; i < 4096; i++) virt[i] = 0;
-            return phys;
+static inline void set_cr3(uintptr_t pml4_phys) {
+    __asm__ volatile("mov %0, %%cr3" :: "r"(pml4_phys) : "memory");
+}
+
+void free_page(uintptr_t phys_addr) {
+    // do not clear literally the BIOS (or UEFI)
+    if (phys_addr == 0) return;
+
+    // convert it into actual usable address
+    free *page = (free*)(phys_addr + hhdm_offset);
+    
+    // make the computer just ignore it and mark as free
+    page->next = free_head;
+    free_head = page;
+}
+
+static void free_user_table_level(uintptr_t table_phys, int level) {
+    if (!table_phys) return;
+
+    uint64_t *table = (uint64_t *)(table_phys + hhdm_offset);
+
+    for (size_t i = 0; i < 512; i++) {
+        uint64_t entry = table[i];
+
+        if (!(entry & PAGE_PRESENT) || !(entry & PAGE_USER)) {
+            continue;
         }
-        entry_idx++;
-        offset = 0;
+
+        uintptr_t child_phys = entry & PAGE_ADDRESS_MASK;
+
+        if (level == 1) {
+            if (child_phys != 0) {
+                free_page(child_phys);
+            }
+        } else {
+            if (!(entry & PAGE_HUGE) && child_phys != 0) {
+                free_user_table_level(child_phys, level - 1);
+            }
+        }
+
+        table[i] = 0;
     }
-    return 0;
+
+    free_page(table_phys);
 }
 
-static uint64_t *get_or_alloc_table(uint64_t *table, size_t idx) {
-    uint64_t hhdm = hhdm_request.response->offset;
-    if (!(table[idx] & PTE_PRESENT)) {
-        uint64_t new_phys = alloc_page();
-        if (!new_phys) return NULL;
-        table[idx] = new_phys | PTE_PRESENT | PTE_WRITABLE;
+void cleanup_pages(void) {
+    if (!kernel_pml4_phys || !hhdm_offset) return;
+
+    uint64_t *pml4 = (uint64_t *)(kernel_pml4_phys + hhdm_offset);
+
+    for (size_t i = 0; i < 256; i++) {
+        uint64_t entry = pml4[i];
+
+        if ((entry & PAGE_PRESENT) && (entry & PAGE_USER)) {
+            uintptr_t pdpt_phys = entry & PAGE_ADDRESS_MASK;
+            if (pdpt_phys != 0) {
+                free_user_table_level(pdpt_phys, 3);
+            }
+            pml4[i] = 0;
+        }
     }
-    return (uint64_t *)((table[idx] & PTE_ADDR_MASK) + hhdm);
+
+    set_cr3(kernel_pml4_phys);
 }
 
-void *map_kernel_mmio(uint64_t phys_addr, size_t size) {
-    uint64_t hhdm = hhdm_request.response->offset;
-    uint64_t cr3;
-    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
 
-    uint64_t *pml4 = (uint64_t *)((cr3 & PTE_ADDR_MASK) + hhdm);
-    uint64_t start = phys_addr & ~0xFFFULL;
-    uint64_t end   = (phys_addr + size + 0xFFFULL) & ~0xFFFULL;
+static void zero_page_4k(void *virt_addr) {
+    uint64_t *p = (uint64_t *)virt_addr;
+    for (size_t i = 0; i < 512; i++) {
+        p[i] = 0;
+    }
+}
 
-    for (uint64_t p = start; p < end; p += 4096) {
-        uint64_t v = p + hhdm;
-        size_t i4 = (v >> 39) & 0x1FF;
-        size_t i3 = (v >> 30) & 0x1FF;
-        size_t i2 = (v >> 21) & 0x1FF;
-        size_t i1 = (v >> 12) & 0x1FF;
+// go down a level
+static uint64_t* get_next_level(uint64_t *current_table, size_t index, bool allocate, uint64_t flags) {
+    if (current_table[index] & PAGE_PRESENT) {
+        // HEY NO BIG PAGES >:(
+        if (current_table[index] & PAGE_HUGE) {
+            return NULL;
+        }
 
-        uint64_t *pdpt = get_or_alloc_table(pml4, i4);
-        if (!pdpt) return NULL;
-        uint64_t *pd = get_or_alloc_table(pdpt, i3);
-        if (!pd) return NULL;
-        uint64_t *pt = get_or_alloc_table(pd, i2);
-        if (!pt) return NULL;
+        // propagate PAGE_USER if this mapping needs user access
+        if ((flags & PAGE_USER) && !(current_table[index] & PAGE_USER)) {
+            current_table[index] |= PAGE_USER;
+        }
 
-        pt[i1] = p | PTE_PRESENT | PTE_WRITABLE | PTE_PWT | PTE_PCD;
-        __asm__ volatile ("invlpg (%0)" :: "r"(v) : "memory");
+        uintptr_t next_phys = current_table[index] & PAGE_ADDRESS_MASK;
+        return (uint64_t *)(next_phys + hhdm_offset);
     }
 
-    return (void *)(phys_addr + hhdm);
+    if (!allocate) {
+        return NULL;
+    }
+
+    uintptr_t new_phys = alloc_page();
+    if (!new_phys) {
+        return NULL; // sam altman got you again
+    }
+
+    uint64_t *new_table = (uint64_t *)(new_phys + hhdm_offset);
+    zero_page_4k(new_table);
+
+    // hey, this page can be used anywhere
+    uint64_t intermediate_flags = PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
+    current_table[index] = (new_phys & PAGE_ADDRESS_MASK) | intermediate_flags;
+
+    return new_table;
+}
+
+// map a 4KB page in memory to tell the cpu
+// that the ram there, actually exists and it's not in (void), get it?
+// my jokes suck....
+bool map_page(uintptr_t virt_addr, uintptr_t phys_addr, uint64_t flags) {
+    size_t pml4_idx = (virt_addr >> 39) & 0x1FF;
+    size_t pdpt_idx = (virt_addr >> 30) & 0x1FF;
+    size_t pd_idx   = (virt_addr >> 21) & 0x1FF;
+    size_t pt_idx   = (virt_addr >> 12) & 0x1FF;
+
+    uint64_t *pml4 = (uint64_t *)(kernel_pml4_phys + hhdm_offset);
+
+    uint64_t *pdpt = get_next_level(pml4, pml4_idx, true, flags);
+    if (!pdpt) return false;
+
+    uint64_t *pd = get_next_level(pdpt, pdpt_idx, true, flags);
+    if (!pd) return false;
+
+    uint64_t *pt = get_next_level(pd, pd_idx, true, flags);
+    if (!pt) return false;
+
+    pt[pt_idx] = (phys_addr & PAGE_ADDRESS_MASK) | flags | PAGE_PRESENT;
+    invlpg(virt_addr);
+
+    return true;
+}
+
+// mnmap a 4 KiB virtual address and return its old physical address (or 0 if unmapped)
+// so basically, telling the CPU that piece of memory, probably doesn't exist.
+uintptr_t unmap_page(uintptr_t virt_addr) {
+    size_t pml4_idx = (virt_addr >> 39) & 0x1FF;
+    size_t pdpt_idx = (virt_addr >> 30) & 0x1FF;
+    size_t pd_idx   = (virt_addr >> 21) & 0x1FF;
+    size_t pt_idx   = (virt_addr >> 12) & 0x1FF;
+
+    uint64_t *pml4 = (uint64_t *)(kernel_pml4_phys + hhdm_offset);
+
+    uint64_t *pdpt = get_next_level(pml4, pml4_idx, false, 0);
+    if (!pdpt) return 0;
+
+    uint64_t *pd = get_next_level(pdpt, pdpt_idx, false, 0);
+    if (!pd) return 0;
+
+    uint64_t *pt = get_next_level(pd, pd_idx, false, 0);
+    if (!pt) return 0;
+
+    if (!(pt[pt_idx] & PAGE_PRESENT)) {
+        return 0;
+    }
+
+    uintptr_t phys_addr = pt[pt_idx] & PAGE_ADDRESS_MASK;
+    pt[pt_idx] = 0;
+
+    invlpg(virt_addr);
+
+    return phys_addr;
+}
+
+void init_vmm(void) {
+    kernel_pml4_phys = alloc_page();
+    if (!kernel_pml4_phys) {
+        halt();
+    }
+
+    uint64_t *new_pml4 = (uint64_t *)(kernel_pml4_phys + hhdm_offset);
+    uint64_t *old_pml4 = (uint64_t *)(get_cr3() + hhdm_offset);
+
+    // zero all 512 entries first so lower-half entries (0..255) don't contain garbage
+    zero_page_4k(new_pml4);
+
+    // copy higher-half entries (HHDM and kernel mapping)
+    for (size_t i = 256; i < 512; i++) {
+        new_pml4[i] = old_pml4[i];
+    }
+
+    // switch.
+    set_cr3(kernel_pml4_phys);
+}
+
+void init_memory(void) {
+    struct limine_memmap_response *memmap = memmap_request.response;
+    struct limine_hhdm_response *hhdm = hhdm_request.response;
+
+    if (!memmap || !hhdm) {
+        // dude uhh nothinig is here
+        halt();
+    }
+
+    hhdm_offset = hhdm->offset;
+
+    // look for memmap entries
+    for (uint64_t i = 0; i < memmap->entry_count; i++) {
+        struct limine_memmap_entry *entry = memmap->entries[i];
+
+        // skip reserved spots so i dont just destroy the OS memory
+        if (entry->type == LIMINE_MEMMAP_USABLE) {
+            for (uint64_t offset = 0; offset < entry->length; offset += PAGE_SIZE) {
+                free_page(entry->base + offset);
+            }
+        }
+    }
+
+    // switch from Limine's PML4 to WINDOGE pml4
+    init_vmm();
 }

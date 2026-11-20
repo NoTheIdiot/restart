@@ -228,13 +228,26 @@ typedef struct {
 #define PAGE_NO_EXECUTE (1ULL << 63)
 #define PAGE_ADDRESS_MASK 0x000FFFFFFFFFF000ULL
 #define MSR_IA32_EFER 0xC0000080
-#define EFER_NXE (1ULL << 11)
-#define DATA_AMOUNT 8192
-#define PAGE_SIZE 4096ULL
-#define PAGE_USER_FLAGS (PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER)
 
-void *map_kernel_mmio(uint64_t phys_addr, size_t size);
-uint64_t alloc_page(void);
+#define PAGE_SIZE     4096
+#define PAGE_HUGE      (1ULL << 7)
+#define PTE_NX        (1ULL << 63)
+#define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
+
+#define MSR_IA32_EFER       0xC0000080
+#define EFER_NXE            (1ULL << 11)
+#define DATA_AMOUNT         8192
+#define PAGE_USER_FLAGS     (PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER)
+
+void      *map_kernel_mmio(uint64_t phys_addr, size_t size);
+void      cleanup_pages(void);
+void      init_memory(void);
+void      init_vmm(void);
+uint64_t  alloc_page(void);
+void      free_page(uintptr_t phys_addr);
+bool      map_page(uintptr_t virt_addr, uintptr_t phys_addr, uint64_t flags);
+uintptr_t unmap_page(uintptr_t virt_addr);
+void      setup_ring3_memory(uint64_t user_code_virt, uint64_t user_stack_virt, const uint8_t *user_code, size_t code_size);
 
 // pcie, sata, usb or some io shit
 void pcie_init_system(uint64_t v_addr, uint8_t start_bus, uint8_t end_bus);

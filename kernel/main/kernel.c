@@ -99,7 +99,10 @@ void windoge(void) {
     init_rtc_time();
     printf("[\033[92m wow \033[0m] RTC done\n");
     printf("[\033[96m ... \033[0m] Mounting ExFAT\n");
-    fs_mount();
+    if (fs_mount()) {
+        printf("[\033[91m bad \033[0m] Mount failed\n");
+        halt();
+    }
     printf("[\033[92m wow \033[0m] Mount done\n");
     printf("\033[96mWindogeOS has booted. \033[0m\n");
     printf("\033[96mUh, now what?\033[0m");
