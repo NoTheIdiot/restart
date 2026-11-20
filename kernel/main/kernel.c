@@ -72,6 +72,9 @@ void windoge(void) {
     printf("[\033[96m ... \033[0m] Init FPU\n");
     init_fpu();
     printf("[\033[92m wow \033[0m] FPU done\n");
+    printf("[\033[96m ... \033[0m] Init VMM and PMM\n");
+    init_memory();
+    printf("[\033[92m wow \033[0m] VMM and PMM done\n");
     printf("[\033[96m ... \033[0m] Init APIC\n");
     init_apic();
     printf("[\033[92m wow \033[0m] APIC done\n");
@@ -104,6 +107,10 @@ void windoge(void) {
         halt();
     }
     printf("[\033[92m wow \033[0m] Mount done\n");
+    printf("[\033[96m ... \033[0m] Init System Calls\n");
+    init_syscalls();
+    printf("[\033[92m wow \033[0m] System Calls done\n");
+
     printf("\033[96mWindogeOS has booted. \033[0m\n");
     printf("\033[96mUh, now what?\033[0m");
     halt();
