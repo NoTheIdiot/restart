@@ -229,7 +229,10 @@ typedef struct {
 #define PAGE_ADDRESS_MASK 0x000FFFFFFFFFF000ULL
 #define MSR_IA32_EFER 0xC0000080
 
-#define PAGE_SIZE     4096
+#define ALIGN_UP(x, align) (((x) + ((align)-1)) & ~((align)-1))
+#define ALIGN_DOWN(x, align) ((x) & ~((align)-1))
+
+#define PAGE_SIZE     0x1000
 #define PAGE_HUGE      (1ULL << 7)
 #define PTE_NX        (1ULL << 63)
 #define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
