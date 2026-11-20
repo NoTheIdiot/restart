@@ -22,83 +22,6 @@ const char *elf_error_messages[] = {
     "ELF_UNSUPPORTED_OSABI"
 };
 
-typedef enum {
-    ELF_OK = 0,
-    ELF_INVALID_MAGIC,
-    ELF_UNSUPPORTED_CLASS,
-    ELF_UNSUPPORTED_DATA_ENCODING,
-    ELF_UNSUPPORTED_VERSION,
-    ELF_UNSUPPORTED_TYPE,
-    ELF_UNSUPPORTED_MACHINE,
-    ELF_INVALID_PROGRAM_HEADER_OFFSET,
-    ELF_INVALID_SECTION_HEADER_OFFSET,
-    ELF_INVALID_PROGRAM_HEADER_SIZE,
-    ELF_INVALID_SECTION_HEADER_SIZE,
-    ELF_INVALID_PROGRAM_HEADER_COUNT,
-    ELF_INVALID_SECTION_HEADER_COUNT,
-    ELF_INVALID_SECTION_NAME_STRING_TABLE_INDEX,
-    ELF_UNSUPPORTED_OSABI
-} status;
-
-static const uint8_t magic[4] = { 0x7F, 'E', 'L', 'F' };
-#define CLASS64 2
-#define WINDOGE_MARK 0x44 // literally just 'D' for doge, for some reason
-                          // i considered 0x55 for the FIVE FIVE
-
-#define ELFDATA2LSB 1     // Little-endian (x86_64, ARM64, RISC-V)
-#define EV_CURRENT  1     // Current ELF version
-
-// what is this like
-#define ET_EXEC     2     // static executable
-#define ET_DYN      3     // shared object / PIE executable
-
-// target arch
-#define EM_X86_64   0x3E  // AMD x86-64
-#define EM_AARCH64  0xB7  // ARM 64-bit
-#define EM_RISCV    0xF3  // RISC-V
-
-// header types
-#define PT_NULL     0     // unused entry
-#define PT_LOAD     1     // loadable segment (map into memory)
-#define PT_DYNAMIC  2     // dynamic linking info
-#define PT_INTERP   3     // path to dynamic linker
-#define PT_NOTE     4     // auxiliary info
-#define PT_PHDR     6     // program header table itself
-
-// segment permissions
-#define PF_X        0x1   // you can run this
-#define PF_W        0x2   // you can write this
-#define PF_R        0x4   // you only can read and not do shit
-
-// oh look another header for the GOD DAMN HEADER PILE
-typedef struct {
-    uint8_t  e_ident[16];  // magic bytes & metadata
-    uint16_t e_type;       // object file type (ET_EXEC, etc.)
-    uint16_t e_machine;    // target ISA (EM_X86_64, etc.)
-    uint32_t e_version;    // ELF version (EV_CURRENT)
-    uint64_t e_entry;      // virtual address of entry point (_start)
-    uint64_t e_phoff;      // file offset to Program Header table
-    uint64_t e_shoff;      // file offset to Section Header table
-    uint32_t e_flags;      // architecture-specific flags
-    uint16_t e_ehsize;     // size of this header (64 bytes)
-    uint16_t e_phentsize;  // size of one Program Header (56 bytes)
-    uint16_t e_phnum;      // number of Program Headers
-    uint16_t e_shentsize;  // size of one Section Header (64 bytes)
-    uint16_t e_shnum;      // number of Section Headers
-    uint16_t e_shstrndx;   // section header string table index
-} __attribute__((packed)) Elf64_Ehdr;
-
-typedef struct {
-    uint32_t p_type;       // segment type (PT_LOAD, etc.)
-    uint32_t p_flags;      // permissions (PF_R, PF_W, PF_X)
-    uint64_t p_offset;     // offset of segment data in file
-    uint64_t p_vaddr;      // target virtual address in userland
-    uint64_t p_paddr;      // physical address (ignored for user apps)
-    uint64_t p_filesz;     // bytes to copy from file
-    uint64_t p_memsz;      // total bytes in memory (p_memsz - p_filesz = .bss)
-    uint64_t p_align;      // segment alignment in memory/file
-} __attribute__((packed)) Elf64_Phdr;
-
 // validate if it's even good enough for running
 status validate(const uint8_t* file_buf, size_t file_size, uint8_t* out) {
     if (!file_buf || file_size < sizeof(Elf64_Ehdr)) {
@@ -142,6 +65,122 @@ status validate(const uint8_t* file_buf, size_t file_size, uint8_t* out) {
     if (ehdr->e_entry == 0 || ehdr->e_entry >= 0x0000800000000000ULL) {
         return ELF_UNSUPPORTED_TYPE;
     }
+
+    return ELF_OK;
+}
+
+static void zero_mem(void* dst, size_t n) {
+    uint8_t* d = (uint8_t*)dst;
+    for (size_t i = 0; i < n; i++) d[i] = 0;
+}
+
+static void copy_mem(void* dst, const void* src, size_t n) {
+    uint8_t* d = (uint8_t*)dst;
+    const uint8_t* s = (const uint8_t*)src;
+    for (size_t i = 0; i < n; i++) d[i] = s[i];
+}
+
+void program_unload(elf_process_t* proc) {
+    if (!proc) return;
+
+    if (proc->max_vaddr > proc->min_vaddr) {
+        for (uint64_t vaddr = proc->min_vaddr; vaddr < proc->max_vaddr; vaddr += PAGE_SIZE) {
+            uintptr_t phys = unmap_page(vaddr);
+            if (phys) {
+                free_page(phys);
+            }
+        }
+    }
+
+    if (proc->stack_top != 0) {
+        uint64_t stack_bottom = proc->stack_top - (USER_STACK_PAGES * PAGE_SIZE);
+        for (uint64_t vaddr = stack_bottom; vaddr < proc->stack_top; vaddr += PAGE_SIZE) {
+            uintptr_t phys = unmap_page(vaddr);
+            if (phys) {
+                free_page(phys);
+            }
+        }
+    }
+}
+
+status program_load(const uint8_t* file_buf, size_t file_size, elf_process_t* out_proc) {
+    if (!out_proc) return ELF_INVALID_MAGIC;
+    zero_mem(out_proc, sizeof(elf_process_t));
+
+    status st = validate(file_buf, file_size, &out_proc->osabi);
+    if (st != ELF_OK) {
+        return st;
+    }
+
+    const Elf64_Ehdr* ehdr = (const Elf64_Ehdr*)file_buf;
+    const Elf64_Phdr* phdrs = (const Elf64_Phdr*)(file_buf + ehdr->e_phoff);
+
+    out_proc->entry = ehdr->e_entry;
+    out_proc->min_vaddr = ~0ULL;
+    out_proc->max_vaddr = 0;
+
+    for (uint16_t i = 0; i < ehdr->e_phnum; i++) {
+        const Elf64_Phdr* phdr = &phdrs[i];
+
+        if (phdr->p_type != PT_LOAD || phdr->p_memsz == 0) {
+            continue;
+        }
+
+        if (phdr->p_memsz < phdr->p_filesz ||
+            phdr->p_offset + phdr->p_filesz > file_size ||
+            phdr->p_vaddr + phdr->p_memsz >= 0x0000800000000000ULL) {
+            program_unload(out_proc);
+            return ELF_INVALID_PROGRAM_HEADER_OFFSET;
+        }
+
+        uint64_t seg_start = ALIGN_DOWN(phdr->p_vaddr, PAGE_SIZE);
+        uint64_t seg_end   = ALIGN_UP(phdr->p_vaddr + phdr->p_memsz, PAGE_SIZE);
+
+        if (seg_start < out_proc->min_vaddr) out_proc->min_vaddr = seg_start;
+        if (seg_end   > out_proc->max_vaddr) out_proc->max_vaddr = seg_end;
+
+        for (uint64_t vaddr = seg_start; vaddr < seg_end; vaddr += PAGE_SIZE) {
+            uint64_t phys = alloc_page();
+            if (!phys) {
+                program_unload(out_proc);
+                return ELF_INVALID_PROGRAM_HEADER_OFFSET;
+            }
+
+            if (!map_page(vaddr, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER)) {
+                free_page(phys);
+                program_unload(out_proc);
+                return ELF_INVALID_PROGRAM_HEADER_OFFSET;
+            }
+        }
+
+        zero_mem((void*)seg_start, seg_end - seg_start);
+
+        if (phdr->p_filesz > 0) {
+            copy_mem((void*)phdr->p_vaddr, file_buf + phdr->p_offset, phdr->p_filesz);
+        }
+
+        uint64_t final_flags = PAGE_PRESENT | PAGE_USER;
+        if (phdr->p_flags & PF_W)  final_flags |= PAGE_WRITABLE;
+        if (!(phdr->p_flags & PF_X)) final_flags |= PTE_NX;
+
+        for (uint64_t vaddr = seg_start; vaddr < seg_end; vaddr += PAGE_SIZE) {
+            uintptr_t phys = unmap_page(vaddr);
+            map_page(vaddr, phys, final_flags);
+        }
+    }
+
+    uint64_t stack_bottom = USER_STACK_TOP - (USER_STACK_PAGES * PAGE_SIZE);
+    for (uint64_t vaddr = stack_bottom; vaddr < USER_STACK_TOP; vaddr += PAGE_SIZE) {
+        uint64_t phys = alloc_page();
+        if (!phys || !map_page(vaddr, phys, PAGE_USER_FLAGS | PTE_NX)) {
+            if (phys) free_page(phys);
+            program_unload(out_proc);
+            return ELF_INVALID_PROGRAM_HEADER_OFFSET;
+        }
+    }
+
+    zero_mem((void*)stack_bottom, USER_STACK_PAGES * PAGE_SIZE);
+    out_proc->stack_top = USER_STACK_TOP;
 
     return ELF_OK;
 }

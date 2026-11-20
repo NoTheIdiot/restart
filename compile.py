@@ -247,14 +247,6 @@ def compile_kernel_binary():
     print(f"[SUCCESS] Kernel compiled successfully at {kernel_output}")
     return obj_dir
 
-def stamp_windoge_abi(elf_path):
-    with open(elf_path, "r+b") as f:
-        magic = f.read(4)
-        if magic != b"\x7fELF":
-            raise RuntimeError(f"Output file is not a valid ELF binary: {elf_path}")
-        f.seek(7)
-        f.write(b"\x44")
-
 def compile_userland_programs():
     programs_dir = os.path.abspath("programs")
     if not os.path.exists(programs_dir):
@@ -323,6 +315,13 @@ def compile_userland_programs():
         cmd.extend(obj_list)
         return cmd
 
+    def stamp_windoge_abi(elf_path):
+        with open(elf_path, "r+b") as f:
+            if f.read(4) != b"\x7fELF":
+                raise RuntimeError(f"Output file is not a valid ELF binary: {elf_path}")
+            f.seek(7)
+            f.write(b"\x44")
+
     user_binaries = []
     system_binaries = []
 
@@ -342,7 +341,7 @@ def compile_userland_programs():
                 continue
 
             if os.path.isfile(item_path) and item.endswith((".c", ".cpp", ".cc", ".s", ".S", ".asm")):
-                prog_name = os.path.splitext(item)[0]
+                prog_name = os.path.splitext(item)
                 obj_path = os.path.join(destination_dir, f"{prog_name}.o")
                 elf_path = os.path.join(destination_dir, prog_name)
 
@@ -414,7 +413,6 @@ def compile_userland_programs():
     compile_items_in(sys_dir, sys_out_dir, system_binaries, is_system_folder=True)
 
     return user_binaries, system_binaries
-
 
 def cleanup_kernel_elf():
     if os.path.exists("kernel.elf"):
