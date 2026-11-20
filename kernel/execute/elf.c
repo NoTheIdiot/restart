@@ -18,10 +18,29 @@ const char *elf_error_messages[] = {
     "ELF_INVALID_SECTION_HEADER_SIZE",
     "ELF_INVALID_PROGRAM_HEADER_COUNT",
     "ELF_INVALID_SECTION_HEADER_COUNT",
-    "ELF_INVALID_SECTION_NAME_STRING_TABLE_INDEX"
+    "ELF_INVALID_SECTION_NAME_STRING_TABLE_INDEX",
+    "ELF_UNSUPPORTED_OSABI"
 };
 
-const char* magic[4] = { "\x7F", "E", "L", "F" };
+typedef enum {
+    ELF_OK = 0,
+    ELF_INVALID_MAGIC,
+    ELF_UNSUPPORTED_CLASS,
+    ELF_UNSUPPORTED_DATA_ENCODING,
+    ELF_UNSUPPORTED_VERSION,
+    ELF_UNSUPPORTED_TYPE,
+    ELF_UNSUPPORTED_MACHINE,
+    ELF_INVALID_PROGRAM_HEADER_OFFSET,
+    ELF_INVALID_SECTION_HEADER_OFFSET,
+    ELF_INVALID_PROGRAM_HEADER_SIZE,
+    ELF_INVALID_SECTION_HEADER_SIZE,
+    ELF_INVALID_PROGRAM_HEADER_COUNT,
+    ELF_INVALID_SECTION_HEADER_COUNT,
+    ELF_INVALID_SECTION_NAME_STRING_TABLE_INDEX,
+    ELF_UNSUPPORTED_OSABI
+} status;
+
+static const uint8_t magic[4] = { 0x7F, 'E', 'L', 'F' };
 #define CLASS64 2
 #define WINDOGE_MARK 0x44 // literally just 'D' for doge, for some reason
                           // i considered 0x55 for the FIVE FIVE
@@ -79,3 +98,50 @@ typedef struct {
     uint64_t p_memsz;      // total bytes in memory (p_memsz - p_filesz = .bss)
     uint64_t p_align;      // segment alignment in memory/file
 } __attribute__((packed)) Elf64_Phdr;
+
+// validate if it's even good enough for running
+status validate(const uint8_t* file_buf, size_t file_size, uint8_t* out) {
+    if (!file_buf || file_size < sizeof(Elf64_Ehdr)) {
+        return ELF_INVALID_MAGIC;
+    }
+
+    const Elf64_Ehdr* ehdr = (const Elf64_Ehdr*)file_buf;
+
+    if (ehdr->e_ident[0] != magic[0] ||
+        ehdr->e_ident[1] != magic[1] ||
+        ehdr->e_ident[2] != magic[2] ||
+        ehdr->e_ident[3] != magic[3]) {
+        return ELF_INVALID_MAGIC;
+    }
+
+    if (ehdr->e_ident[4] != CLASS64)     return ELF_UNSUPPORTED_CLASS;
+    if (ehdr->e_ident[5] != ELFDATA2LSB) return ELF_UNSUPPORTED_DATA_ENCODING;
+    if (ehdr->e_ident[6] != EV_CURRENT)  return ELF_UNSUPPORTED_VERSION;
+
+    uint8_t osabi = ehdr->e_ident[7];
+    if (osabi != WINDOGE_MARK && osabi != 0x00 && osabi != 0x03) {
+        return ELF_UNSUPPORTED_OSABI;
+    }
+    if (out) {
+        *out = osabi;
+    }
+
+    if (ehdr->e_type != ET_EXEC)      return ELF_UNSUPPORTED_TYPE;
+    if (ehdr->e_machine != EM_X86_64) return ELF_UNSUPPORTED_MACHINE;
+
+    if (ehdr->e_phoff == 0 || ehdr->e_phoff >= file_size) {
+        return ELF_INVALID_PROGRAM_HEADER_OFFSET;
+    }
+    if (ehdr->e_phentsize != sizeof(Elf64_Phdr)) {
+        return ELF_INVALID_PROGRAM_HEADER_SIZE;
+    }
+    if (ehdr->e_phnum == 0 || (ehdr->e_phoff + (uint64_t)ehdr->e_phnum * sizeof(Elf64_Phdr)) > file_size) {
+        return ELF_INVALID_PROGRAM_HEADER_COUNT;
+    }
+
+    if (ehdr->e_entry == 0 || ehdr->e_entry >= 0x0000800000000000ULL) {
+        return ELF_UNSUPPORTED_TYPE;
+    }
+
+    return ELF_OK;
+}

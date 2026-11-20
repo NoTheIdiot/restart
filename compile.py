@@ -247,6 +247,14 @@ def compile_kernel_binary():
     print(f"[SUCCESS] Kernel compiled successfully at {kernel_output}")
     return obj_dir
 
+def stamp_windoge_abi(elf_path):
+    with open(elf_path, "r+b") as f:
+        magic = f.read(4)
+        if magic != b"\x7fELF":
+            raise RuntimeError(f"Output file is not a valid ELF binary: {elf_path}")
+        f.seek(7)
+        f.write(b"\x44")
+
 def compile_userland_programs():
     programs_dir = os.path.abspath("programs")
     if not os.path.exists(programs_dir):
@@ -353,6 +361,7 @@ def compile_userland_programs():
 
                 link_cmd = make_lld_cmd(elf_path, [obj_path])
                 run_command(link_cmd)
+                stamp_windoge_abi(elf_path)
                 target_list.append(elf_path)
                 print(f"[SUCCESS] Compiled program: {prog_name}")
 
@@ -393,6 +402,7 @@ def compile_userland_programs():
                 link_cmd = make_lld_cmd(elf_path, obj_files)
 
                 run_command(link_cmd)
+                stamp_windoge_abi(elf_path)
                 target_list.append(elf_path)
                 print(f"[SUCCESS] Compiled package: {prog_name}")
 
