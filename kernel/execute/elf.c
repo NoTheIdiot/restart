@@ -184,6 +184,8 @@ status program_load(const uint8_t* file_buf, size_t file_size, elf_process_t* ou
 
     zero_mem((void*)stack_bottom, USER_STACK_PAGES * PAGE_SIZE);
     out_proc->stack_top = USER_STACK_TOP;
+    sprintf("[ELF] Stack mapped: [0x%llx, 0x%llx) (%d pages)\n",
+        stack_bottom, USER_STACK_TOP, USER_STACK_PAGES);
 
     return ELF_OK;
 }

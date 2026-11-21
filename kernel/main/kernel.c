@@ -112,6 +112,8 @@ void windoge(void) {
     printf("[\033[92m wow \033[0m] System Calls done\n");
 
     printf("\033[96mWindogeOS has booted. \033[0m\n");
-    printf("\033[96mUh, now what?\033[0m");
+    printf("\033[96mUh, now what?\n\033[0m");
+
+    run("programs/test", 16384);
     halt();
 }

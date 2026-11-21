@@ -4,16 +4,20 @@
 #include "stdint.h"
 #include "bool.h"
 #include "root.h"
+#include "stddef.h"
 
-static inline uint64_t printf(const char *fmt, ...) {
-    char* buf;
+int printf(const char *fmt, ...) {
+    char buf[512];
     va_list args;
     va_start(args, fmt);
     int len = _root_vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
-    if (len < 0) return ERR_INVAL;
-    return syscall_2(TEXT, TEXT_PRINTF, (uint64_t)buf);
+    if (len < 0) return -1;
+    size_t ulen = (size_t)len;
+    if (ulen >= sizeof(buf)) ulen = sizeof(buf) - 1;
+
+    return (int)syscall_3(TEXT, TEXT_PRINTF, (uint64_t)buf, (uint64_t)ulen);
 }
 
 #endif

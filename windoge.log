@@ -1,8 +1,12 @@
-[AHCI Debug] Found controller at PCI %02x:%02x.%x, BAR5 phys=0x%llx
-[AHCI Debug] CAP=0x%08x PI=0x%08x VS=0x%08x
-[AHCI Debug] Port %u ready (sectors=%llu).
-[xHCI] Keyboard active on port %u (slot %u).
+[AHCI Debug] Found controller at PCI 00:03.0, BAR5 phys=0xfebd9000
+[AHCI Debug] CAP=0xc0141f05 PI=0x0000003f VS=0x00010000
+[AHCI Debug] Port 0 ready (sectors=20971520).
+[xHCI] Keyboard active on port 5 (slot 1).
 [HDD] verifying boot magic and exfat magic
 [HDD] VBR valid
 [HDD] checking exFAT magic
 [HDD] exFAT mounted
+[HDD] file exists: programs/test
+[ELF] Stack mapped: [0x7fffffefc000, 0x7ffffff00000) (4 pages)
+[ELF] Running programs/test (entry=0x400a10, stack=0x7ffffff00000, osabi=0x44)
+[SYSCALL] rax=1 rdi=1 rsi=140737487306200

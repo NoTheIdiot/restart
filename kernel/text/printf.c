@@ -69,46 +69,74 @@ static inline struct limine_framebuffer *get_fb(void) {
     return framebuffer_request.response->framebuffers[0];
 }
 
-static const uint8_t *get_glyph_pointer(char c) {
-    if ((uint8_t)c >= 128) {
-        c = ' ';
-    }
-
+static void get_glyph_info(char c, const uint8_t **out_glyph, uint32_t *out_rows, uint32_t *out_bpr) {
+    uint8_t uc = ((uint8_t)c >= 128) ? (uint8_t)' ' : (uint8_t)c;
     uint32_t magic = read_u32_unaligned(current_font);
 
     if ((magic & 0xFFFFU) == 0x0436U) {
-        uint8_t bytes_per_glyph = current_font[3];
-        return &current_font[4 + ((uint8_t)c * bytes_per_glyph)];
-    } else if (magic == 0x864ab572U) {
-        uint32_t header_size = read_u32_unaligned(&current_font[8]);
-        uint32_t bytes_per_glyph = read_u32_unaligned(&current_font[20]);
-        return &current_font[header_size + ((uint8_t)c * bytes_per_glyph)];
+        // PSF1: byte 2 = mode, byte 3 = charsize (bytes per glyph)
+        uint32_t bpg = current_font[3];
+        if (bpg == 0) bpg = 16;
+        *out_rows = bpg;
+        *out_bpr = 1;
+        *out_glyph = &current_font[4 + (uc * bpg)];
+        return;
     }
 
-    return &current_font[(uint8_t)c * 16];
+    if (magic == 0x864ab572U) {
+        // PSF2: offset 8 = headersize, offset 16 = length, offset 20 = charsize, offset 24 = height, offset 28 = width
+        uint32_t header_size = read_u32_unaligned(&current_font[8]);
+        uint32_t num_glyphs  = read_u32_unaligned(&current_font[16]);
+        uint32_t bpg         = read_u32_unaligned(&current_font[20]);
+        uint32_t height      = read_u32_unaligned(&current_font[24]);
+        uint32_t width       = read_u32_unaligned(&current_font[28]);
+
+        if (uc >= num_glyphs) uc = (uint8_t)' ';
+        if (height == 0) height = 16;
+        uint32_t bpr = (width + 7U) / 8U;
+        if (bpr == 0) bpr = 1;
+        if (bpg == 0) bpg = height * bpr;
+
+        *out_rows = height;
+        *out_bpr = bpr;
+        *out_glyph = &current_font[header_size + (uc * bpg)];
+        return;
+    }
+
+    // Raw 8x16 bitmap fallback
+    *out_rows = 16;
+    *out_bpr = 1;
+    *out_glyph = &current_font[uc * 16];
 }
 
 static void render_glyph(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg) {
     struct limine_framebuffer *fb = get_fb();
     if (!fb || !fb->address || !current_font) return;
 
-    uint32_t pixel_x = x * 8;
-    uint32_t pixel_y = y * 16;
+    const uint8_t *glyph = NULL;
+    uint32_t g_height = 16;
+    uint32_t bpr = 1;
+    get_glyph_info(c, &glyph, &g_height, &bpr);
+
+    uint32_t glyph_w = bpr * 8U;
+    uint32_t pixel_x = x * glyph_w;
+    uint32_t pixel_y = y * g_height;
     uint64_t pitch32 = fb->pitch / sizeof(uint32_t);
 
-    if (pixel_x + 8 > fb->width || pixel_y + 16 > fb->height) {
+    if ((uint64_t)pixel_x + glyph_w > fb->width || (uint64_t)pixel_y + g_height > fb->height) {
         return;
     }
 
     uint32_t *fb_ptr = (uint32_t *)fb->address;
-    const uint8_t *glyph = get_glyph_pointer(c);
 
-    for (uint32_t g_row = 0; g_row < 16; g_row++) {
-        uint8_t bits = glyph[g_row];
-        size_t row_offset = (size_t)(pixel_y + g_row) * pitch32 + pixel_x;
-
-        for (int bit = 0; bit < 8; bit++) {
-            fb_ptr[row_offset + (size_t)bit] = ((bits >> (7 - bit)) & 1U) ? fg : bg;
+    for (uint32_t r = 0; r < g_height; r++) {
+        size_t row_offset = (size_t)(pixel_y + r) * pitch32 + pixel_x;
+        for (uint32_t b = 0; b < bpr; b++) {
+            uint8_t bits = glyph[r * bpr + b];
+            size_t col_base = row_offset + (size_t)(b * 8U);
+            for (int bit = 0; bit < 8; bit++) {
+                fb_ptr[col_base + (size_t)bit] = ((bits >> (7 - bit)) & 1U) ? fg : bg;
+            }
         }
     }
 }
@@ -116,10 +144,22 @@ static void render_glyph(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t b
 void clear(void) {
     struct limine_framebuffer *fb = get_fb();
     if (fb && fb->address) {
-        term_cols = (uint32_t)(fb->width / 8);
-        term_rows = (uint32_t)(fb->height / 16);
+        const uint8_t *dummy_glyph = NULL;
+        uint32_t g_height = 16;
+        uint32_t bpr = 1;
+        if (current_font) {
+            get_glyph_info(' ', &dummy_glyph, &g_height, &bpr);
+        }
+        uint32_t glyph_w = bpr * 8U;
+        if (glyph_w == 0) glyph_w = 8;
+        if (g_height == 0) g_height = 16;
+
+        term_cols = (uint32_t)(fb->width / glyph_w);
+        term_rows = (uint32_t)(fb->height / g_height);
         if (term_cols > TERMINAL_COLS) term_cols = TERMINAL_COLS;
         if (term_rows > TERMINAL_ROWS) term_rows = TERMINAL_ROWS;
+        if (term_cols == 0) term_cols = 1;
+        if (term_rows == 0) term_rows = 1;
 
         uint32_t *fb_ptr = (uint32_t *)fb->address;
         uint64_t pitch32 = fb->pitch / sizeof(uint32_t);
@@ -240,7 +280,9 @@ void putchar(char c) {
 
     if (ansi_state == 2) {
         if (c >= '0' && c <= '9') {
-            ansi_cur_val = ansi_cur_val * 10 + (uint32_t)(c - '0');
+            if (ansi_cur_val <= 1000000U) {
+                ansi_cur_val = ansi_cur_val * 10U + (uint32_t)(c - '0');
+            }
             ansi_has_val = 1;
             return;
         }
@@ -306,14 +348,14 @@ void putchar(char c) {
     }
 }
 
-static void print_str(const char *s) {
+static void print_str_target(const char *s, void (*emit)(char)) {
     if (!s) s = "(null)";
     while (*s) {
-        putchar(*s++);
+        emit(*s++);
     }
 }
 
-static void print_uint_padded(uint64_t val, int base, int upper, int width, char pad_char) {
+static void print_uint_target(uint64_t val, int base, int upper, int width, char pad_char, void (*emit)(char)) {
     const char *digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
     char buf[65];
     int i = 0;
@@ -321,35 +363,36 @@ static void print_uint_padded(uint64_t val, int base, int upper, int width, char
     if (val == 0) {
         buf[i++] = '0';
     } else {
-        while (val > 0) {
+        while (val > 0 && i < 64) {
             buf[i++] = digits[val % (uint64_t)base];
             val /= (uint64_t)base;
         }
     }
 
-    while (i < width && i < 64) {
+    if (width > 64) width = 64;
+    while (i < width) {
         buf[i++] = pad_char;
     }
 
     while (i > 0) {
-        putchar(buf[--i]);
+        emit(buf[--i]);
     }
 }
 
-static void print_int_padded(int64_t val, int width, char pad_char) {
+static void print_int_target(int64_t val, int width, char pad_char, void (*emit)(char)) {
     if (val < 0) {
-        putchar('-');
+        emit('-');
         if (width > 0) width--;
-        print_uint_padded((uint64_t)(-(val + 1)) + 1, 10, 0, width, pad_char);
+        print_uint_target((uint64_t)(-(val + 1)) + 1, 10, 0, width, pad_char, emit);
     } else {
-        print_uint_padded((uint64_t)val, 10, 0, width, pad_char);
+        print_uint_target((uint64_t)val, 10, 0, width, pad_char, emit);
     }
 }
 
-void vprintf(const char *fmt, va_list ap) {
+static void format_va(const char *fmt, va_list ap, void (*emit)(char)) {
     for (; *fmt; fmt++) {
         if (*fmt != '%') {
-            putchar(*fmt);
+            emit(*fmt);
             continue;
         }
 
@@ -364,7 +407,9 @@ void vprintf(const char *fmt, va_list ap) {
 
         int width = 0;
         while (*fmt >= '0' && *fmt <= '9') {
-            width = width * 10 + (*fmt - '0');
+            if (width < 64) {
+                width = width * 10 + (*fmt - '0');
+            }
             fmt++;
         }
 
@@ -373,51 +418,58 @@ void vprintf(const char *fmt, va_list ap) {
             is_long = 1;
             fmt++;
             if (*fmt == 'l') fmt++;
+        } else if (*fmt == 'z') {
+            is_long = 1;
+            fmt++;
         }
 
         switch (*fmt) {
             case 'c':
-                putchar((char)va_arg(ap, int));
+                emit((char)va_arg(ap, int));
                 break;
             case 's':
-                print_str(va_arg(ap, const char *));
+                print_str_target(va_arg(ap, const char *), emit);
                 break;
             case 'd':
             case 'i':
-                print_int_padded(is_long ? va_arg(ap, int64_t) : (int64_t)va_arg(ap, int),
-                                 width, pad_char);
+                print_int_target(is_long ? va_arg(ap, int64_t) : (int64_t)va_arg(ap, int),
+                                 width, pad_char, emit);
                 break;
             case 'u':
-                print_uint_padded(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
-                                  10, 0, width, pad_char);
+                print_uint_target(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
+                                  10, 0, width, pad_char, emit);
                 break;
             case 'x':
-                print_uint_padded(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
-                                  16, 0, width, pad_char);
+                print_uint_target(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
+                                  16, 0, width, pad_char, emit);
                 break;
             case 'X':
-                print_uint_padded(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
-                                  16, 1, width, pad_char);
+                print_uint_target(is_long ? va_arg(ap, uint64_t) : (uint64_t)va_arg(ap, unsigned int),
+                                  16, 1, width, pad_char, emit);
                 break;
             case 'p':
-                print_str("0x");
-                print_uint_padded((uintptr_t)va_arg(ap, void *), 16, 0, width, pad_char);
+                print_str_target("0x", emit);
+                print_uint_target((uintptr_t)va_arg(ap, void *), 16, 0, width, pad_char, emit);
                 break;
             case '%':
-                putchar('%');
+                emit('%');
                 break;
             default:
-                putchar('%');
-                putchar(*fmt);
+                emit('%');
+                emit(*fmt);
                 break;
         }
     }
 }
 
+void vprintf(const char *fmt, va_list ap) {
+    format_va(fmt, ap, putchar);
+}
+
 void printf(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    vprintf(fmt, ap);
+    format_va(fmt, ap, putchar);
     va_end(ap);
 }
 
@@ -450,31 +502,6 @@ static void serial_out(char c) {
 void sprintf(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    for (; *fmt; fmt++) {
-        if (*fmt != '%') {
-            serial_out(*fmt);
-            continue;
-        }
-        fmt++;
-        if (!*fmt) break;
-        switch (*fmt) {
-            case 'c':
-                serial_out((char)va_arg(ap, int));
-                break;
-            case 's': {
-                const char *s = va_arg(ap, const char *);
-                if (!s) s = "(null)";
-                while (*s) serial_out(*s++);
-                break;
-            }
-            case '%':
-                serial_out('%');
-                break;
-            default:
-                serial_out('%');
-                serial_out(*fmt);
-                break;
-        }
-    }
+    format_va(fmt, ap, serial_out);
     va_end(ap);
 }

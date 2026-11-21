@@ -63,12 +63,22 @@ interrupt_frame_t *isr_common_handler(interrupt_frame_t *frame) {
         bool is_user = (frame->cs & 3) != 0;
         printf("\033[91m[Not Wow]\033[0m Page Fault (Vector 14)\n");
         printf("  Mode: %s\n", is_user ? "User (Ring 3)" : "Kernel (Ring 0)");
+
+        sprintf("\033[91m[Not Wow]\033[0m Page Fault (Vector 14)\n");
+        sprintf("  Mode: %s\n", is_user ? "User (Ring 3)" : "Kernel (Ring 0)");
     } else {
         switch (frame->vector) {
             case 0:  printf("\033[91m[Not Wow]\033[0m Divide-by-Zero (Vector 0)\n"); break;
             case 6:  printf("\033[91m[Not Wow]\033[0m Invalid Opcode (Vector 6)\n"); break;
             case 13: printf("\033[91m[Not Wow]\033[0m General Protection Fault (Vector 13)\n"); break;
             default: printf("\033[91m[Not Wow]\033[0m Unhandled Interrupt / Fault (Vector %lu)\n", frame->vector); break;
+        }
+
+        switch (frame->vector) {
+            case 0:  sprintf("\033[91m[Not Wow]\033[0m Divide-by-Zero (Vector 0)\n"); break;
+            case 6:  sprintf("\033[91m[Not Wow]\033[0m Invalid Opcode (Vector 6)\n"); break;
+            case 13: sprintf("\033[91m[Not Wow]\033[0m General Protection Fault (Vector 13)\n"); break;
+            default: sprintf("\033[91m[Not Wow]\033[0m Unhandled Interrupt / Fault (Vector %lu)\n", frame->vector); break;
         }
     }
 
@@ -81,13 +91,23 @@ interrupt_frame_t *isr_common_handler(interrupt_frame_t *frame) {
         printf("    - %s\n", !(frame->error_code & 1) ? "Not-Present page" : "Protection fault");
         printf("    - %s\n", (frame->error_code & 2) ? "Caused by a Write" : "Caused by a Read/Fetch");
         printf("    - %s\n", (frame->error_code & 4) ? "Access was User-mode" : "Access was Supervisor-mode");
+        
+        sprintf("  CR2: 0x%lx\n", read_cr2());
+        sprintf("  [PF Flags]:\n");
+        sprintf("    - %s\n", !(frame->error_code & 1) ? "Not-Present page" : "Protection fault");
+        sprintf("    - %s\n", (frame->error_code & 2) ? "Caused by a Write" : "Caused by a Read/Fetch");
+        sprintf("    - %s\n", (frame->error_code & 4) ? "Access was User-mode" : "Access was Supervisor-mode");
         if (frame->error_code & 16) {
             printf("    - Instruction Fetch\n");
+            sprintf("    - Instruction Fetch\n");
         }
     }
 
     printf("  RSP: 0x%lx\n", frame->rsp);
     printf("  RFLAGS: 0x%lx\n", frame->rflags);
+
+    sprintf("  RSP: 0x%lx\n", frame->rsp);
+    sprintf("  RFLAGS: 0x%lx\n", frame->rflags);
 
     while (1) {
         __asm__ __volatile__("cli; hlt");

@@ -53,33 +53,59 @@ uint64_t heap_pointer = 0x0000000010000000ULL;
 
 static bool is_valid_user_ptr(const void *ptr, size_t len) {
     uintptr_t addr = (uintptr_t)ptr;
-    return addr != 0 && addr < USER_LIMIT && len <= (USER_LIMIT - addr);
+    if (addr == 0 || addr >= USER_LIMIT) return false;
+    if (len > USER_LIMIT - addr) return false;
+    return true;
 }
 
 static bool copy_str_from_user(char *dst, const char *user_src, size_t max_len) {
-    if (!is_valid_user_ptr(user_src, 1) || max_len == 0) return false;
+    if (!dst || !user_src || max_len == 0) return false;
     for (size_t i = 0; i < max_len; i++) {
-        if (!is_valid_user_ptr(&user_src[i], 1)) return false;
-        dst[i] = user_src[i];
-        if (dst[i] == '\0') return true;
+        if (!is_valid_user_ptr(&user_src[i], 1)) {
+            dst[0] = '\0';
+            return false;
+        }
+        char c = user_src[i];
+        dst[i] = c;
+        if (c == '\0') return true;
     }
     dst[max_len - 1] = '\0';
     return false;
 }
 
 static bool copy_from_user(void *dst, const void *user_src, size_t len) {
-    if (!is_valid_user_ptr(user_src, len)) return false;
+    if (len == 0) return true;
+    if (!dst || !user_src || !is_valid_user_ptr(user_src, len)) return false;
     memcpy(dst, user_src, len);
     return true;
 }
 
 static bool copy_to_user(void *user_dst, const void *src, size_t len) {
-    if (!is_valid_user_ptr(user_dst, len)) return false;
+    if (len == 0) return true;
+    if (!user_dst || !src || !is_valid_user_ptr(user_dst, len)) return false;
     memcpy(user_dst, src, len);
     return true;
 }
 
 extern void syscall_entry(void);
+
+typedef struct {
+    uint64_t rax;
+    uint64_t rbx;
+    uint64_t rdx;
+    uint64_t rsi;
+    uint64_t rdi;
+    uint64_t rbp;
+    uint64_t r8;
+    uint64_t r9;
+    uint64_t r10;
+    uint64_t r12;
+    uint64_t r13;
+    uint64_t r14;
+    uint64_t r15;
+    uint64_t r11;
+    uint64_t rcx;
+} __attribute__((packed)) registers_t;
 
 typedef struct {
     uint64_t kernel_rsp;
@@ -101,30 +127,59 @@ static inline uint64_t handle_text(registers_t *regs) {
     switch (op) {
         case TEXT_PRINTF: {
             const char *user_str = (const char *)regs->rsi;
-            size_t len = (size_t)regs->rdx;
+            if (!is_valid_user_ptr(user_str, 1)) {
+                return ERR_BAD_PTR;
+            }
 
-            if (len == 0) return 0;
-            if (len > USER_IO_LIMIT) len = USER_IO_LIMIT;
+            // Support both explicit length in RDX (if small/valid) and NUL-terminated strings
+            size_t explicit_len = (size_t)regs->rdx;
+            bool use_explicit = (explicit_len > 0 && explicit_len <= USER_IO_LIMIT);
+            size_t max_bytes = use_explicit ? explicit_len : USER_IO_LIMIT;
 
             char kbuf[256];
+            size_t total_printed = 0;
             size_t offset = 0;
 
-            while (offset < len) {
-                size_t chunk = len - offset;
+            while (offset < max_bytes) {
+                size_t chunk = max_bytes - offset;
                 if (chunk > sizeof(kbuf) - 1) {
                     chunk = sizeof(kbuf) - 1;
                 }
 
-                if (!copy_from_user(kbuf, user_str + offset, chunk)) {
-                    return ERR_BAD_PTR;
+                size_t i = 0;
+                bool hit_null = false;
+
+                for (; i < chunk; i++) {
+                    char ch;
+                    if (!copy_from_user(&ch, user_str + offset + i, 1)) {
+                        return ERR_BAD_PTR;
+                    }
+                    if (!use_explicit && ch == '\0') {
+                        hit_null = true;
+                        break;
+                    }
+                    if (use_explicit && ch == '\0') {
+                        hit_null = true;
+                        break;
+                    }
+                    kbuf[i] = ch;
                 }
 
-                kbuf[chunk] = '\0';
-                printf("%s", kbuf);
-                offset += chunk;
+                kbuf[i] = '\0';
+
+                if (i > 0) {
+                    printf("%s", kbuf);
+                    total_printed += i;
+                }
+
+                if (hit_null) {
+                    break;
+                }
+
+                offset += i;
             }
 
-            return offset;
+            return total_printed;
         }
 
         default: {
@@ -134,6 +189,7 @@ static inline uint64_t handle_text(registers_t *regs) {
 }
 
 uint64_t syscall_handler(registers_t *regs) {
+    sprintf("[SYSCALL] rax=%llu rdi=%llu rsi=%llu\n", regs->rax, regs->rdi, regs->rsi);
     switch (regs->rax) {
         case TEXT: {
             return handle_text(regs);
@@ -199,9 +255,9 @@ void init_syscalls(void) {
 
     wrmsr(MSR_IA32_EFER, rdmsr(MSR_IA32_EFER) | EFER_SCE);
 
-    uint64_t kernel_cs = 0x08; 
+    uint64_t kernel_cs = 0x08;
     uint64_t user_base = 0x10;
-    
+
     uint64_t star = (kernel_cs << 32) | (user_base << 48);
     wrmsr(MSR_IA32_STAR, star);
 

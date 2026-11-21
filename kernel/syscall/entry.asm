@@ -1,27 +1,19 @@
-[bits 64]
+bits 64
 
-; headers (also known as FUCKING GLOBALS AND EXTERN)
 global syscall_entry
 extern syscall_handler
 
 section .text
 syscall_entry:
-    ; to this day, i will never know what this does
-    swapgs
+    swapgs                                  
 
-    ; save rsp into stack
-    mov [gs:8], r15
-    mov r15, rsp
-    mov rsp, [gs:0]
-    push r15
-    mov r15, [gs:8]
+    mov qword [gs:8], rsp                 
+    mov rsp, qword [gs:0]               
+    sti  
 
-    ; enable interrupts
-    sti 
-
-    ; push almost all regs
     push rcx
     push r11
+
     push r15
     push r14
     push r13
@@ -36,14 +28,13 @@ syscall_entry:
     push rbx
     push rax 
 
-    ; pass pointer to stack frame
-    mov rdi, rsp
+    mov rdi, rsp 
+    
     call syscall_handler
-
-    ; send value
-    mov [rsp], rax
-
-    ; pop in reverse because stacks are like stacks of pancakes
+    
+    mov [rsp], rax 
+    
+    ; pop in reverse
     pop rax                               
     pop rbx
     pop rdx
@@ -58,15 +49,11 @@ syscall_entry:
     pop r14
     pop r15
     
-    ; restore the RFLAGS and RIP
+    ; restore r flags
     pop r11                               
-    pop rcx 
-
-    ; disable interrupts
-    cli
-    pop rsp
-    swapgs
-
-    ; exit ring 0
-    o64 sysret                      
+    pop rcx                               
     
+    mov rsp, qword [gs:8]                 
+    swapgs                                  
+
+    o64 sysret

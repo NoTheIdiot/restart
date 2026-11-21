@@ -27,7 +27,7 @@ static inline uint64_t syscall_0(uint64_t num) {
     __asm__ volatile (
         "syscall"
         : "+a"(num)
-        : 
+        :
         : "rcx", "r11", "memory"
     );
     return num;
@@ -87,7 +87,7 @@ static inline uint64_t syscall_5(uint64_t num, uint64_t arg1, uint64_t arg2, uin
 }
 
 static inline int _root_vsnprintf(char *buf, uint64_t size, const char *fmt, va_list args) {
-    if (!buf || size == 0) return -1;
+    if (!buf || size == 0 || !fmt) return -1;
 
     uint64_t pos = 0;
     #define EMIT(c) do { if (pos + 1 < size) buf[pos] = (c); pos++; } while (0)
@@ -105,6 +105,9 @@ static inline int _root_vsnprintf(char *buf, uint64_t size, const char *fmt, va_
             is_long = true;
             p++;
             if (*p == 'l') p++;
+        } else if (*p == 'z') {
+            is_long = true;
+            p++;
         }
 
         switch (*p) {
@@ -134,7 +137,7 @@ static inline int _root_vsnprintf(char *buf, uint64_t size, const char *fmt, va_
                 }
                 char tmp[24];
                 int i = 0;
-                do { tmp[i++] = '0' + (uval % 10); uval /= 10; } while (uval);
+                do { tmp[i++] = (char)('0' + (uval % 10)); uval /= 10; } while (uval);
                 while (i > 0) EMIT(tmp[--i]);
                 break;
             }
@@ -142,7 +145,7 @@ static inline int _root_vsnprintf(char *buf, uint64_t size, const char *fmt, va_
                 uint64_t uval = is_long ? va_arg(args, uint64_t) : (uint64_t)va_arg(args, unsigned int);
                 char tmp[24];
                 int i = 0;
-                do { tmp[i++] = '0' + (uval % 10); uval /= 10; } while (uval);
+                do { tmp[i++] = (char)('0' + (uval % 10)); uval /= 10; } while (uval);
                 while (i > 0) EMIT(tmp[--i]);
                 break;
             }
@@ -175,7 +178,7 @@ static inline int _root_vsnprintf(char *buf, uint64_t size, const char *fmt, va_
     return (int)pos;
 }
 
-static inline uint64_t root_console(uint8_t opcode, ...) {
+static inline uint64_t root_console(uint32_t opcode, ...) {
     if (opcode == TEXT_PRINTF) {
         va_list args;
         va_start(args, opcode);

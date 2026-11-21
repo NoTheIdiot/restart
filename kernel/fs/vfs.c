@@ -60,12 +60,12 @@ static bool fs_find_entry(const char *path, fs_t *out_entry) {
             if (out_entry) {
                 *out_entry = entries[i];
             }
-            printf("[HDD] file exists: %s\n", path);
+            sprintf("[HDD] file exists: %s\n", path);
             return true;
         }
     }
 
-    printf("[HDD] file doesn't exist: %s\n", path);
+    sprintf("[HDD] file doesn't exist: %s\n", path);
     return false;
 }
 
