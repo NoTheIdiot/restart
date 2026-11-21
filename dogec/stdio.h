@@ -20,4 +20,8 @@ int printf(const char *fmt, ...) {
     return (int)syscall_3(TEXT, TEXT_PRINTF, (uint64_t)buf, (uint64_t)ulen);
 }
 
+void exit(void) {
+    root_doge(DOGE_EXIT);
+}
+
 #endif

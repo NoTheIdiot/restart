@@ -29,4 +29,8 @@ static inline uint64_t println(const char *fmt, ...) {
     return val;
 }
 
+void exit(void) {
+    root_doge(DOGE_EXIT);
+}
+
 #endif

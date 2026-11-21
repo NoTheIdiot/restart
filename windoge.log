@@ -8,5 +8,7 @@
 [HDD] exFAT mounted
 [HDD] file exists: programs/test
 [ELF] Stack mapped: [0x7fffffefc000, 0x7ffffff00000) (4 pages)
-[ELF] Running programs/test (entry=0x400a10, stack=0x7ffffff00000, osabi=0x44)
+[ELF] Running programs/test (entry=0x400a60, stack=0x7ffffff00000, osabi=0x44)
 [SYSCALL] rax=1 rdi=1 rsi=140737487306200
+[SYSCALL] rax=3 rdi=1 rsi=1
+[SYSCALl] exiting[ELF] Process programs/test exited and unloaded

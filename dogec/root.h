@@ -11,11 +11,15 @@ enum {
     DOGE = 0x03,
     MEM  = 0x04,
     IPC  = 0x05,
-    DEV  = 0x06,
+    PROC  = 0x06,
 };
 
 enum {
     TEXT_PRINTF = 0x01
+};
+
+enum {
+    DOGE_EXIT = 0x01
 };
 
 #define ERR_UNKNOWN_SYSCALL ((uint64_t)-1)
@@ -195,6 +199,12 @@ static inline uint64_t root_console(uint32_t opcode, ...) {
     }
 
     return ERR_UNKNOWN_OPCODE;
+}
+
+static inline uint64_t root_doge(uint32_t opcode, ...) {
+    if (opcode == DOGE_EXIT) {
+        syscall_1(DOGE, DOGE_EXIT);
+    }
 }
 
 #endif

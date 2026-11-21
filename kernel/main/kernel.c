@@ -115,5 +115,6 @@ void windoge(void) {
     printf("\033[96mUh, now what?\n\033[0m");
 
     run("programs/test", 16384);
+    printf("exited");
     halt();
 }

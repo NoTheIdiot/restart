@@ -7,11 +7,15 @@ enum {
     DOGE = 3,
     MEM  = 4,
     IPC  = 5,
-    DEV  = 6,
+    PROC  = 6,
 };
 
 enum {
     TEXT_PRINTF = 0x01
+};
+
+enum {
+    DOGE_EXIT = 0x01
 };
 
 #define ERR_UNKNOWN_SYSCALL ((uint64_t)-1)

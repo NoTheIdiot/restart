@@ -188,11 +188,33 @@ static inline uint64_t handle_text(registers_t *regs) {
     }
 }
 
+static inline uint64_t handle_doge(registers_t *regs) {
+    uint64_t op = regs->rdi;
+
+    switch (op) {
+        case DOGE_EXIT: {
+            sprintf("[SYSCALl] exiting");
+            cleanup_pages();
+            heap_pointer = USER_START;
+            if (kernel_program_launcher_rsp == 0) {
+                sprintf("[SYSCALL] ERROR: kernel_program_launcher_rsp is NULL again...");
+                halt();
+            }
+            syscall_exit_to_launcher();
+            return 0;
+        }
+    }
+}
+
 uint64_t syscall_handler(registers_t *regs) {
     sprintf("[SYSCALL] rax=%llu rdi=%llu rsi=%llu\n", regs->rax, regs->rdi, regs->rsi);
     switch (regs->rax) {
         case TEXT: {
             return handle_text(regs);
+        }
+
+        case DOGE: {
+            return handle_doge(regs);
         }
 
         default: {
