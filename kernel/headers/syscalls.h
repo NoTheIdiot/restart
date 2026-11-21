@@ -2,12 +2,12 @@
 #define SYSCALLS_H
 
 enum {
-    TEXT = 0x01,
-    FS   = 0x02,
-    DOGE = 0x03,
-    MEM  = 0x04,
-    IPC  = 0x05,
-    DEV  = 0x06,
+    TEXT = 1,
+    FS   = 2,
+    DOGE = 3,
+    MEM  = 4,
+    IPC  = 5,
+    DEV  = 6,
 };
 
 enum {
