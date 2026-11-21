@@ -1,6 +1,7 @@
 #include <dogeio.h>
 #include <string.h>
 #include <stdint.h>
+#include <syscalls.h>
 #include <bool.h>
 #include <io.h>
 
@@ -31,6 +32,22 @@
 #define USER_INPUT_LIMIT         256
 #define MAX_EXEC_ARGS 32
 #define MAX_ARG_LEN   256
+
+#ifndef TEXT_PRINTF
+#define TEXT_PRINTF              0x01
+#endif
+
+#ifndef ERR_UNKNOWN_SYSCALL
+#define ERR_UNKNOWN_SYSCALL      ((uint64_t)-1)
+#endif
+
+#ifndef ERR_UNKNOWN_OPCODE
+#define ERR_UNKNOWN_OPCODE       ((uint64_t)-2)
+#endif
+
+#ifndef ERR_BAD_PTR
+#define ERR_BAD_PTR              ((uint64_t)-3)
+#endif
 
 uint64_t heap_pointer = 0x0000000010000000ULL;
 
@@ -78,21 +95,55 @@ static bool cpu_supports_rdrand;
 
 __attribute__((noreturn)) extern void syscall_exit_to_launcher(void);
 
-// code 0xFFF means unknown syscall
-uint64_t syscall_handler(registers_t *regs) {
-    uint64_t sc_num = regs->rax;
-    uint64_t ret_val = 0;
+static inline uint64_t handle_text(registers_t *regs) {
+    uint64_t op = regs->rdi;
 
-    switch (sc_num) {
+    switch (op) {
+        case TEXT_PRINTF: {
+            const char *user_str = (const char *)regs->rsi;
+            size_t len = (size_t)regs->rdx;
+
+            if (len == 0) return 0;
+            if (len > USER_IO_LIMIT) len = USER_IO_LIMIT;
+
+            char kbuf[256];
+            size_t offset = 0;
+
+            while (offset < len) {
+                size_t chunk = len - offset;
+                if (chunk > sizeof(kbuf) - 1) {
+                    chunk = sizeof(kbuf) - 1;
+                }
+
+                if (!copy_from_user(kbuf, user_str + offset, chunk)) {
+                    return ERR_BAD_PTR;
+                }
+
+                kbuf[chunk] = '\0';
+                printf("%s", kbuf);
+                offset += chunk;
+            }
+
+            return offset;
+        }
+
         default: {
-            ret_val = (uint64_t)0xFFF;
-            printf("Unknown syscall attempted to execute: %llu\n", sc_num);
-            sprintf("Unknown syscall attempted to execute: %llu\n", sc_num);
-            break;
+            return ERR_UNKNOWN_OPCODE;
         }
     }
+}
 
-    return ret_val;
+uint64_t syscall_handler(registers_t *regs) {
+    switch (regs->rax) {
+        case TEXT: {
+            return handle_text(regs);
+        }
+
+        default: {
+            printf("Unknown syscall attempted to execute: %llu\n", regs->rax);
+            return ERR_UNKNOWN_SYSCALL;
+        }
+    }
 }
 
 void init_syscalls(void) {
