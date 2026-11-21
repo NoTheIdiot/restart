@@ -4,6 +4,9 @@
 #include <bool.h>
 #include <io.h>
 
+extern void to_userland_ring3(uint64_t entry, uint64_t stack_top);
+#define ELF_SCRATCH_VBASE 0xFFFF900000000000ULL
+
 const char *elf_error_messages[] = {
     "ELF_OK",
     "ELF_INVALID_MAGIC",
@@ -183,4 +186,68 @@ status program_load(const uint8_t* file_buf, size_t file_size, elf_process_t* ou
     out_proc->stack_top = USER_STACK_TOP;
 
     return ELF_OK;
+}
+
+static void free_scratch_buffer(uintptr_t vbase, size_t num_pages) {
+    for (size_t i = 0; i < num_pages; i++) {
+        uintptr_t phys = unmap_page(vbase + (i * PAGE_SIZE));
+        if (phys) {
+            free_page(phys);
+        }
+    }
+}
+
+void run(char* filename, size_t file_size) {
+    if (!filename || file_size == 0) {
+        sprintf("[ELF] Invalid filename or zero file size\n");
+        return;
+    }
+
+    if (!fs_exists(filename)) {
+        sprintf("[ELF] File not found: %s\n", filename);
+        return;
+    }
+
+    size_t num_pages = ALIGN_UP(file_size, PAGE_SIZE) / PAGE_SIZE;
+    for (size_t i = 0; i < num_pages; i++) {
+        uint64_t phys = alloc_page();
+        if (!phys) {
+            sprintf("[ELF] Out of physical pages for ELF buffer\n");
+            free_scratch_buffer(ELF_SCRATCH_VBASE, i);
+            return;
+        }
+
+        if (!map_page(ELF_SCRATCH_VBASE + (i * PAGE_SIZE), phys, PAGE_PRESENT | PAGE_WRITABLE)) {
+            free_page(phys);
+            sprintf("[ELF] Failed to map scratch page\n");
+            free_scratch_buffer(ELF_SCRATCH_VBASE, i);
+            return;
+        }
+    }
+
+    uint8_t* file_buf = (uint8_t*)ELF_SCRATCH_VBASE;
+
+    if (fs_read_raw(filename, file_buf, file_size) < 0) {
+        sprintf("[ELF] Failed to read file: %s\n", filename);
+        free_scratch_buffer(ELF_SCRATCH_VBASE, num_pages);
+        return;
+    }
+
+    elf_process_t proc;
+    status st = program_load(file_buf, file_size, &proc);
+
+    free_scratch_buffer(ELF_SCRATCH_VBASE, num_pages);
+
+    if (st != ELF_OK) {
+        sprintf("[ELF] Load failed for %s: %s\n", filename, elf_error_messages[st]);
+        return;
+    }
+
+    sprintf("[ELF] Running %s (entry=0x%llx, stack=0x%llx, osabi=0x%x)\n",
+            filename, proc.entry, proc.stack_top, proc.osabi);
+
+    to_userland_ring3(proc.entry, proc.stack_top & ~0xFULL);
+
+    program_unload(&proc);
+    sprintf("[ELF] Process %s exited and unloaded\n", filename);
 }
